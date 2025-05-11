@@ -13,18 +13,25 @@ local function find(opts)
   local find_command = (function()
     if opts.find_command then
       if type(opts.find_command) == "function" then
+        vim.notify("Function")
         return opts.find_command(opts)
       end
+      vim.notify("Else function")
       return opts.find_command
     elseif 1 == vim.fn.executable "rg" then
+      vim.notify("rg")
       return { "rg", "--files", "--color", "never" }
     elseif 1 == vim.fn.executable "fd" then
+      vim.notify(fd)
       return { "fd", "--type", "f", "--color", "never" }
     elseif 1 == vim.fn.executable "fdfind" then
+      vim.notify("fdfind")
       return { "fdfind", "--type", "f", "--color", "never" }
     elseif 1 == vim.fn.executable "find" and vim.fn.has "win32" == 0 then
+      vim.notify("findwin32")
       return { "find", ".", "-type", "f" }
     elseif 1 == vim.fn.executable "where" then
+      vim.notify("where")
       return { "where", "/r", ".", "*" }
     end
   end)()
@@ -50,6 +57,7 @@ local function find(opts)
       search_dirs[k] = utils.path_expand(v)
     end
   end
+  vim.notify(vim.inspect(search_dirs))
   if command == "fd" or command == "fdfind" or command == "rg" then
     if hidden then
       find_command[#find_command + 1] = "--hidden"
@@ -140,11 +148,11 @@ local function find(opts)
 end
 
 function M.find_files()
-  print("here")
   local opts = {
-    cwd = "~/Desktop/testing",
+    -- cwd = "",
     grep_open_files = false,
-    search = "*"
+    search = "*",
+    search_dirs = {"~/Desktop/testing/", "~/Desktop/dig.nvim"}
   }
   find(opts)
 end

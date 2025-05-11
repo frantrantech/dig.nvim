@@ -42,6 +42,7 @@ end
 -- Creates a window if it isn't open.
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
+  -- vim.notify("toggling")
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
   if window_is_open then
     close_window()
@@ -59,7 +60,6 @@ function M.toggle_window()
     -- local line_ct = vim.api.nvim_buf_line_count(win_buf)
     -- local line1 = vim.api.nvim_buf_get_lines(win_buf, 1, 2, true)
     -- print(line1[1])
-
   end
 end
 
