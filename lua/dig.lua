@@ -32,7 +32,7 @@ local function create_window()
   }
 end
 
---Dig_window_id should be non null here 
+--Dig_window_id should be non null here
 local function close_window()
   vim.api.nvim_win_close(Dig_window_id, true)
 end
@@ -53,8 +53,8 @@ function M.toggle_window()
     vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
 
--- 0 Based indexing in nvim api
--- 1 based indexing with native lua
+    -- 0 Based indexing in nvim api
+    -- 1 based indexing with native lua
     -- vim.api.nvim_buf_set_lines(win_buf,0,0,true,{"Hello World"})
     -- vim.api.nvim_buf_set_lines(win_buf,1,1,true,{"Hello World2"})
     -- local line_ct = vim.api.nvim_buf_line_count(win_buf)
