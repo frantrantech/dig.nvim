@@ -1,11 +1,24 @@
 local M = {}
 local popup = require("plenary.popup")
+local COMMENT_CHAR = "#"
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
 
+local function get_dir_contents(dir)
+  local ls = io.popen('ls -a ' .. dir .. '',"r")
+  local res = ls:read("a")
+  print(res)
+end
+
+local function get_all_files()
+  -- local files = io.tmpfile()
+  -- io.input(files)
+  get_dir_contents("/Users/francistran/Desktop/dig.nvim")
+end
+
 local function split(ignore_file, sep)
   local arr = {}
-  -- Group 
+  -- Split by sep and capture the str
   for str in string.gmatch(ignore_file, '([^' .. sep .. ']+)')
   do
     table.insert(arr, str)
@@ -19,16 +32,32 @@ local function get_ignore_file()
   io.input(git_ignore_file_name)
   -- local fileData = io.read("*all")
   local fileData = io.read("a")
+  io.close()
   return fileData
 end
 
+-- Returns true if we shouldn't process this ignore
+local function pre_process_ignore_line(ignore_line)
+  -- Lua str indexing is weird. Basically use a substring to read a character. Here we use a "metatable?"
+  -- See metatables: https://www.lua.org/pil/13.html Metatables allow us to change the behavior of a table. For instance, using metatables, we can define how Lua computes the expression a+b, where a and b are tables. Whenever Lua tries to add two tables, it checks whether either of them has a metatable and whether that metatable has an __add field. If Lua finds this field, it calls the corresponding value (the so-called metamethod, which should be a function) to compute the sum.
+
+  -- Ignore if this is a comment
+  if ignore_line:sub(1, 1) == COMMENT_CHAR
+  then
+    return true
+  end
+  return false
+end
+
 local function process_ignore_line(ignore_line)
-  vim.notify(ignore_line)
+  local should_skip_line = pre_process_ignore_line(ignore_line)
+  if should_skip_line then return end
 end
 
 local function process_ignore_file()
   local ignore_file = get_ignore_file()
   local ignore_file_lines = split(ignore_file, "\n")
+  local files_in_project = get_all_files()
   for i = 1, table.getn(ignore_file_lines)
   do
     process_ignore_line(ignore_file_lines[i])

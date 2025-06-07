@@ -1,0 +1,4 @@
+#THIS IS A COMMENT
+.DS_STORE
+.ignore
+/test_dirs/
