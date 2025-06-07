@@ -1,5 +1,39 @@
 local M = {}
 local popup = require("plenary.popup")
+local git_ignore_file_name = "./.gitignore"
+local ignore_file_name = "./.ignore"
+
+local function split(ignore_file, sep)
+  local arr = {}
+  -- Group 
+  for str in string.gmatch(ignore_file, '([^' .. sep .. ']+)')
+  do
+    table.insert(arr, str)
+  end
+  return arr
+end
+
+-- Logic for reading in .ignore
+local function get_ignore_file()
+  -- io.input(ignore_file_name)
+  io.input(git_ignore_file_name)
+  -- local fileData = io.read("*all")
+  local fileData = io.read("a")
+  return fileData
+end
+
+local function process_ignore_line(ignore_line)
+  vim.notify(ignore_line)
+end
+
+local function process_ignore_file()
+  local ignore_file = get_ignore_file()
+  local ignore_file_lines = split(ignore_file, "\n")
+  for i = 1, table.getn(ignore_file_lines)
+  do
+    process_ignore_line(ignore_file_lines[i])
+  end
+end
 
 Dig_window = nil
 Dig_window_id = nil
@@ -43,15 +77,17 @@ end
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
   -- vim.notify("toggling")
+  process_ignore_file()
+
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
   if window_is_open then
-    close_window()
-    return
+    -- close_window()
+    -- return
   else
-    local win = create_window()
-    local win_buf = win.win_buf
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
-      { silent = true })
+    -- local win = create_window()
+    -- local win_buf = win.win_buf
+    -- vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
+    --   { silent = true })
 
     -- 0 Based indexing in nvim api
     -- 1 based indexing with native lua
