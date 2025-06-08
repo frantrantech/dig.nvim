@@ -9,6 +9,8 @@ local FIRST_LS_INDEX = 6 -- Set to 6 to get rid of ../. Set to 3 to get rid of .
 local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
+local X = "❌"
+local Y = "✅"
 
 CURR_DIR = ""
 CURR_FILES = {}
@@ -17,6 +19,11 @@ CURR_CHILD_DIRS = {}
 -- parent : children
 ALL_FILES = {}
 ALL_DIRS = {}
+
+-- path_to_file: bool
+  -- If nil then not ignored
+IGNORED_FILES = {}
+IGNORED_DIRS = {}
 
 local function split(str, sep)
   local arr = {}
@@ -141,6 +148,15 @@ local function process_ignore_file()
   end
 end
 
+local function get_path_ignored_status(path)
+  if path_is_dir(path)
+    then
+      local ignored_status = IGNORED_DIRS[path]
+      return ignored_status == nil or ignored_status == true
+  end
+end
+
+
 Dig_window = nil
 Dig_window_id = nil
 
@@ -187,12 +203,15 @@ local function update_dig_window(win_buf)
   local last_line_idx = 1
   for i = 1, #dirs
   do
-    vim.api.nvim_buf_set_lines(win_buf, i, i, true, { dirs[i] })
+    local path_is_ignored = get_path_ignored_status(dirs[i])
+    local path_str = dirs[i]
+    if path_is_ignored then path_str=''.. X .. ' ' ..path_str end
+    vim.api.nvim_buf_set_lines(win_buf, i, i, true, {path_str})
     last_line_idx = i
   end
 
   -- Set Files
-  vim.api.nvim_buf_set_lines(win_buf, last_line_idx + 1, last_line_idx + 1, true, { "FILES" })
+  vim.api.nvim_buf_set_lines(win_buf, last_line_idx + 1, last_line_idx + 1, true, { "❌ FILES" })
   last_line_idx = last_line_idx + 2
   for i = 1, #files
   do
@@ -201,18 +220,28 @@ local function update_dig_window(win_buf)
   end
 end
 
+function M.add_to_ignores(win_buf)
+  local path = vim.api.nvim_get_current_line()
+  print("Adding to ignore " .. path)
+end
+
+function M.remove_from_ignores(win_buf)
+  local path = vim.api.nvim_get_current_line()
+  print("Remove from ignore " .. path)
+end
+
 -- User has just tried to enter a path.
--- Need to decide if file or dir
 -- If dir -> update CURR_DIR
+-- If file -> do nothing?
 function M.enter_path(win_buf)
   local path = vim.api.nvim_get_current_line()
   if path_is_dir(path)
     then
       update_dir(path,false)
+      update_dig_window(win_buf)
     else
       print("Path is file  " .. path)
     end
-  update_dig_window(win_buf)
 end
 
 --Dig_window_id should be non null here
@@ -234,14 +263,21 @@ function M.toggle_window()
     process_ignore_file()
     local win = create_window()
     local win_buf = win.win_buf
+
+    -- Leave Dig Window
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'q', '<Cmd>lua require("dig").toggle_window()<CR>',
+      { silent = true })
     vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
 
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path()<CR>',
-      { silent = true })
+    -- Attempt to enter a directory
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path('..win_buf..')<CR>', { silent = true })
 
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path('..win_buf..')<CR>',
-      { silent = true })
+    -- Exclude file / dir
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'E', '<Cmd>lua require("dig").add_to_ignores('..win_buf..')<CR>', { silent = true })
+
+    -- Include file / dir
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'C', '<Cmd>lua require("dig").remove_from_ignores('..win_buf..')<CR>', { silent = true })
 
     -- vim.keymap.set('n', 'E', function()
     --   local line = vim.api.nvim_get_current_line()
