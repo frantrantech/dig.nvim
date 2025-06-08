@@ -1,10 +1,11 @@
+---@diagnostic disable: undefined-global
 local M = {}
 local popup = require("plenary.popup")
 local PREV_DIR_NAME = ".."
 local CURR_DIR_NAME = "."
 local COMMENT_CHAR = "#"
 local NEW_LINE = "\n"
-local FIRST_LS_INDEX = 6
+local FIRST_LS_INDEX = 6 -- Set to 6 to get rid of ../. Set to 3 to get rid of ./.
 local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
@@ -33,7 +34,7 @@ end
 
 -- Take a file name from ls and determine if it is a directory or notify
 -- Is a directory
-local function file_is_dir(path)
+local function path_is_dir(path)
   local is_dir = os.execute('[ -f "' .. path .. '" ]') == IS_DIR
   return is_dir
 end
@@ -47,12 +48,24 @@ local function get_dir_contents(dir)
   return ls_arr
 end
 
--- local curr_dir = {}
--- given a directory, update the file and dir arrays. recursively call this for all immediate child dirs
-local function get_dir_files(dir, check_recursive)
+-- Given a directory, update the file and dir arrays. 
+-- Should we recursively call this for all immediate child dirs? Probably not really slow
+-- CURR_DIR is global state that represents our cwd 
+--
+-- If we have already ran this function on "dir" then we skip. 
+--  TODO: Add a way to check if we should update the contents of dir.
+--    Maintain a set of (need to update) so that we can check
+--      if dir in seen and dir not in need_to_update then skip
+local function update_dir(dir, check_recursive)
+  CURR_DIR = dir
+
+  -- If we've alrady seen this dir, don't look at this dir anymore
+  if ALL_DIRS[CURR_DIR]
+  then
+    return
+  end
   local dir_contents = get_dir_contents(dir)
 
-  CURR_DIR = dir
   local curr_files = {}
   local curr_child_dirs = {}
 
@@ -60,26 +73,23 @@ local function get_dir_files(dir, check_recursive)
   for i = 1, #dir_contents
   do
     local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
-    if file_is_dir(curr_path)
+    if path_is_dir(curr_path)
     then
-      -- table.insert(ALL_DIRS, curr_path)
       table.insert(curr_child_dirs, curr_path)
     else
-      -- table.insert(ALL_FILES, curr_path)
       table.insert(curr_files, curr_path)
     end
   end
 
   ALL_FILES[dir] = curr_files
   ALL_DIRS[dir] = curr_child_dirs
-  -- table.insert(ALL_FILES,curr_files)
-  -- table.insert(ALL_FILES,curr_child_dirs)
+
   -- Repeat for all child dirs of dir
   if check_recursive
   then
     for i = 1, #child_dirs
     do
-      get_dir_files(child_dirs[i], check_recursive)
+      update_dir(child_dirs[i], check_recursive)
     end
   end
 
@@ -92,7 +102,7 @@ end
 local function get_all_dirs_files()
   local project_root_pwd = io.popen("pwd")
   local project_root_name = project_root_pwd:read("a")
-  get_dir_files(strip_new_line(project_root_name), false)
+  update_dir(strip_new_line(project_root_name), false)
   -- vim.print(all_files)
 end
 
@@ -106,7 +116,7 @@ end
 -- Returns true if we shouldn't process this ignore
 local function pre_process_ignore_line(ignore_line)
   -- Lua str indexing is weird. Basically use a substring to read a character. Here we use a "metatable?"
-  -- See metatables: https://www.lua.org/pil/13.html Metatables allow us to change the behavior of a table. For instance, using metatables, we can define how Lua computes the expression a+b, where a and b are tables. Whenever Lua tries to add two tables, it checks whether either of them has a metatable and whether that metatable has an __add field. If Lua finds this field, it calls the corresponding value (the so-called metamethod, which should be a function) to compute the sum.
+  -- See metatables: https://www.lua.org/pil/13.html Metatables allow us to change the behavior of a table.
 
   -- Ignore if this is a comment
   if ignore_line:sub(1, 1) == COMMENT_CHAR
@@ -167,13 +177,13 @@ local function create_window()
   }
 end
 
-
 local function update_dig_window(win_buf)
   local dirs = ALL_DIRS[CURR_DIR]
   local files = ALL_FILES[CURR_DIR]
-  vim.api.nvim_buf_set_lines(win_buf, 0, 0, true, { CURR_DIR })
-  vim.print(files)
 
+  vim.api.nvim_buf_set_lines(win_buf, 0, -1, false, {})
+
+  -- Set Dirs
   local last_line_idx = 1
   for i = 1, #dirs
   do
@@ -181,8 +191,8 @@ local function update_dig_window(win_buf)
     last_line_idx = i
   end
 
+  -- Set Files
   vim.api.nvim_buf_set_lines(win_buf, last_line_idx + 1, last_line_idx + 1, true, { "FILES" })
-
   last_line_idx = last_line_idx + 2
   for i = 1, #files
   do
@@ -191,13 +201,26 @@ local function update_dig_window(win_buf)
   end
 end
 
+-- User has just tried to enter a path.
+-- Need to decide if file or dir
+-- If dir -> update CURR_DIR
+function M.enter_path(win_buf)
+  local path = vim.api.nvim_get_current_line()
+  if path_is_dir(path)
+    then
+      update_dir(path,false)
+    else
+      print("Path is file  " .. path)
+    end
+  update_dig_window(win_buf)
+end
+
 --Dig_window_id should be non null here
 local function close_window()
   vim.api.nvim_win_close(Dig_window_id, true)
 end
 
 -- Closes window and returns if window is open
---
 -- Creates a window if it isn't open.
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
@@ -213,6 +236,17 @@ function M.toggle_window()
     local win_buf = win.win_buf
     vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
+
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path()<CR>',
+      { silent = true })
+
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path('..win_buf..')<CR>',
+      { silent = true })
+
+    -- vim.keymap.set('n', 'E', function()
+    --   local line = vim.api.nvim_get_current_line()
+    --   print("Current line: " .. line)
+    -- end, { buffer = win_buf, silent = false })
 
     -- 0 Based indexing in nvim api
     -- 1 based indexing with native lua
