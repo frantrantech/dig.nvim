@@ -27,6 +27,16 @@ ALL_DIRS = {}
 IGNORED_FILES = {}
 IGNORED_DIRS = {}
 
+local function filter(arr, filter_fn)
+  local result = {}
+  for i, v in ipairs(arr) do
+    if filter_fn(v, i) then
+      table.insert(result, v)
+    end
+  end
+  return result
+end
+
 local function split(str, sep)
   local arr = {}
   -- Split by sep and capture the str
@@ -48,18 +58,6 @@ local function path_is_dir(path)
   return is_dir
 end
 
-local function filter(arr, filter_fn)
-  local result = {}
-  for i, v in ipairs(arr) do
-    if filter_fn(v, i) then
-      table.insert(result, v)
-    end
-  end
-  return result
-end
-
-
-
 -- Returns the result of calling "ls" on "dir" as an array
 local function get_dir_contents(dir)
   local ls_output = io.popen('ls -a ' .. dir .. '', "r")
@@ -73,14 +71,15 @@ local function get_dir_contents(dir)
   return ls_filtered
 end
 
+-- TODO: The work begins here
 local function dir_is_in_ignore_file(dir_path)
-  for i = 1, #IGNORED_DIRS
+  vim.print(IGNORE_FILE)
+  for i = 1, #IGNORE_FILE
   do
-    local ignore_line = IGNORED_DIRS[i]
+    local ignore_line = IGNORE_FILE[i]
   end
 end
 local function file_is_in_ignore_file(file_path)
-
 end
 
 -- local function set_dir_partially_ignored(dir_path, is_partially_ignored)
@@ -169,11 +168,12 @@ end
 
 local function process_ignore_file()
   local ignore_file_contents = get_ignore_file_contents()
-  IGNORE_FILE = split(ignore_file_contents, NEW_LINE)
-  for i = 1, #IGNORE_FILE
-  do
-    process_ignore_line(IGNORE_FILE[i])
-  end
+  local ignore_arr = split(ignore_file_contents, NEW_LINE)
+
+  IGNORE_FILE = filter(ignore_arr, function(ignore_line)
+    return ignore_line:sub(1, 1) ~= COMMENT_CHAR
+  end)
+  -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   local files_in_project = update_root_dirs_files()
 end
 
