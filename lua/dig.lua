@@ -1,27 +1,29 @@
 ---@diagnostic disable: undefined-global
 local M = {}
 local popup = require("plenary.popup")
-local PREV_DIR_NAME = ".."
-local CURR_DIR_NAME = "."
 local COMMENT_CHAR = "#"
 local NEW_LINE = "\n"
 local FIRST_LS_INDEX = 6 -- Set to 6 to get rid of ../. Set to 3 to get rid of ./.
 local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
+local DIR_IS_IGNORED = 100
+local DIR_IS_PARTIALLY_IGNORED = 200
 local X = "❌"
 local Y = "✅"
 
+-- The contents of the ignore file we just read in
+IGNORE_FILE = {}
+-- Active directory of dig, used to index ALL_FILES.
+-- Storing in ALL_FILES so we can incrementaly load the project structure.
 CURR_DIR = ""
-CURR_FILES = {}
-CURR_CHILD_DIRS = {}
 
 -- parent : children
 ALL_FILES = {}
 ALL_DIRS = {}
 
 -- path_to_file: bool
-  -- If nil then not ignored
+-- If nil then not ignored
 IGNORED_FILES = {}
 IGNORED_DIRS = {}
 
@@ -46,33 +48,68 @@ local function path_is_dir(path)
   return is_dir
 end
 
+local function filter(arr, filter_fn)
+  local result = {}
+  for i, v in ipairs(arr) do
+    if filter_fn(v, i) then
+      table.insert(result, v)
+    end
+  end
+  return result
+end
+
+
+
 -- Returns the result of calling "ls" on "dir" as an array
 local function get_dir_contents(dir)
   local ls_output = io.popen('ls -a ' .. dir .. '', "r")
+  if ls_output == nil then return end
   local ls = ls_output:read("a")
-  local ls_cleaned = ls:sub(FIRST_LS_INDEX)
-  local ls_arr = split(ls_cleaned, "\n")
-  return ls_arr
+  ls_output:close()
+  local ls_arr = split(ls, NEW_LINE)
+  local ls_filtered = filter(ls_arr, function(path)
+    return path ~= ".." and path ~= "."
+  end)
+  return ls_filtered
 end
 
--- Given a directory, update the file and dir arrays. 
--- Should we recursively call this for all immediate child dirs? Probably not really slow
--- CURR_DIR is global state that represents our cwd 
+local function dir_is_in_ignore_file(dir_path)
+  for i = 1, #IGNORED_DIRS
+  do
+    local ignore_line = IGNORED_DIRS[i]
+  end
+end
+local function file_is_in_ignore_file(file_path)
+
+end
+
+-- local function set_dir_partially_ignored(dir_path, is_partially_ignored)
+--   if is_partially_ignored then IGNORED_DIRS[dir_path] = DIR_IS_PARTIALLY_IGNORED
+-- end
 --
--- If we have already ran this function on "dir" then we skip. 
+local function set_dir_ignored(dir_path, is_ignored)
+  if is_ignored then IGNORED_DIRS[dir_path] = DIR_IS_IGNORED end
+end
+local function set_file_ignored(path, is_ignored)
+  IGNORED_FILES[path] = is_ignored
+end
+
+-- Given a directory, update the file and dir arrays. Update the ignored table.
+-- CURR_DIR is global state that represents our cwd
+--
+-- If we have already ran this function on "dir" then we skip.
 --  TODO: Add a way to check if we should update the contents of dir.
 --    Maintain a set of (need to update) so that we can check
 --      if dir in seen and dir not in need_to_update then skip
-local function update_dir(dir, check_recursive)
+local function update_dir(dir)
   CURR_DIR = dir
-
   -- If we've alrady seen this dir, don't look at this dir anymore
   if ALL_DIRS[CURR_DIR]
   then
     return
   end
-  local dir_contents = get_dir_contents(dir)
 
+  local dir_contents = get_dir_contents(dir)
   local curr_files = {}
   local curr_child_dirs = {}
 
@@ -83,22 +120,15 @@ local function update_dir(dir, check_recursive)
     if path_is_dir(curr_path)
     then
       table.insert(curr_child_dirs, curr_path)
+      set_dir_ignored(curr_path, dir_is_in_ignore_file(curr_path))
     else
       table.insert(curr_files, curr_path)
+      set_file_ignored(curr_path, file_is_in_ignore_file(curr_path))
     end
   end
 
   ALL_FILES[dir] = curr_files
   ALL_DIRS[dir] = curr_child_dirs
-
-  -- Repeat for all child dirs of dir
-  if check_recursive
-  then
-    for i = 1, #child_dirs
-    do
-      update_dir(child_dirs[i], check_recursive)
-    end
-  end
 
   return {
     files = curr_files,
@@ -106,11 +136,10 @@ local function update_dir(dir, check_recursive)
   }
 end
 
-local function get_all_dirs_files()
+local function update_root_dirs_files()
   local project_root_pwd = io.popen("pwd")
   local project_root_name = project_root_pwd:read("a")
-  update_dir(strip_new_line(project_root_name), false)
-  -- vim.print(all_files)
+  update_dir(strip_new_line(project_root_name))
 end
 
 local function get_ignore_file_contents()
@@ -139,23 +168,30 @@ local function process_ignore_line(ignore_line)
 end
 
 local function process_ignore_file()
-  local ignore_file = get_ignore_file_contents()
-  local ignore_file_lines = split(ignore_file, "\n")
-  local files_in_project = get_all_dirs_files()
-  for i = 1, #ignore_file_lines
+  local ignore_file_contents = get_ignore_file_contents()
+  IGNORE_FILE = split(ignore_file_contents, NEW_LINE)
+  for i = 1, #IGNORE_FILE
   do
-    process_ignore_line(ignore_file_lines[i])
+    process_ignore_line(IGNORE_FILE[i])
   end
+  local files_in_project = update_root_dirs_files()
 end
 
-local function get_path_ignored_status(path)
-  if path_is_dir(path)
-    then
-      local ignored_status = IGNORED_DIRS[path]
-      return ignored_status == nil or ignored_status == true
-  end
+-- Check a dir path to see if it has some ignored items or not
+local function get_dir_is_partially_ignored(dir_path)
+  local ignored_status = IGNORED_DIRS[dir_path]
+  return ignored_status == DIR_IS_PARTIALLY_IGNORED
 end
 
+local function get_dir_is_ignored(dir_path)
+  local ignored_status = IGNORED_DIRS[dir_path]
+  return not (ignored_status ~= nil and ignored_status == DIR_IS_IGNORED)
+end
+
+local function get_file_is_ignored(path)
+  local ignored_status = IGNORED_FILES[path]
+  return not (ignored_status ~= nil and ignored_status == true)
+end
 
 Dig_window = nil
 Dig_window_id = nil
@@ -203,31 +239,37 @@ local function update_dig_window(win_buf)
   local last_line_idx = 1
   for i = 1, #dirs
   do
-    local path_is_ignored = get_path_ignored_status(dirs[i])
-    local path_str = dirs[i]
-    if path_is_ignored then path_str=''.. X .. ' ' ..path_str end
-    vim.api.nvim_buf_set_lines(win_buf, i, i, true, {path_str})
-    last_line_idx = i
+    local dir_is_ignored = get_dir_is_ignored(dirs[i])
+    local dir_is_partially_ignored = get_dir_is_partially_ignored(dirs[i])
+    -- local icon = Y
+    -- if dir_is_ignored then icon = X end
+    -- local dir_display = '' .. icon .. ' ' .. dirs[i]
+    local dir_display = dirs[i]
+    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
+    last_line_idx = last_line_idx + 1
   end
 
   -- Set Files
-  vim.api.nvim_buf_set_lines(win_buf, last_line_idx + 1, last_line_idx + 1, true, { "❌ FILES" })
-  last_line_idx = last_line_idx + 2
+  vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { "FILES" })
+  last_line_idx = last_line_idx + 1
   for i = 1, #files
   do
-    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { files[i] })
+    local file_is_ignored = get_file_is_ignored(files[i])
+    -- local icon = Y
+    -- if file_is_ignored then icon = X end
+    -- path_str = '' .. icon .. ' ' .. files[i]
+    local path_str = files[i]
+    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
     last_line_idx = last_line_idx + 1
   end
 end
 
 function M.add_to_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
-  print("Adding to ignore " .. path)
 end
 
 function M.remove_from_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
-  print("Remove from ignore " .. path)
 end
 
 -- User has just tried to enter a path.
@@ -236,12 +278,11 @@ end
 function M.enter_path(win_buf)
   local path = vim.api.nvim_get_current_line()
   if path_is_dir(path)
-    then
-      update_dir(path,false)
-      update_dig_window(win_buf)
-    else
-      print("Path is file  " .. path)
-    end
+  then
+    update_dir(path)
+    update_dig_window(win_buf)
+  else
+  end
 end
 
 --Dig_window_id should be non null here
@@ -271,18 +312,16 @@ function M.toggle_window()
       { silent = true })
 
     -- Attempt to enter a directory
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path('..win_buf..')<CR>', { silent = true })
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<CR>', '<Cmd>lua require("dig").enter_path(' .. win_buf .. ')<CR>',
+      { silent = true })
 
     -- Exclude file / dir
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'E', '<Cmd>lua require("dig").add_to_ignores('..win_buf..')<CR>', { silent = true })
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'E', '<Cmd>lua require("dig").add_to_ignores(' .. win_buf .. ')<CR>',
+      { silent = true })
 
     -- Include file / dir
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'C', '<Cmd>lua require("dig").remove_from_ignores('..win_buf..')<CR>', { silent = true })
-
-    -- vim.keymap.set('n', 'E', function()
-    --   local line = vim.api.nvim_get_current_line()
-    --   print("Current line: " .. line)
-    -- end, { buffer = win_buf, silent = false })
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'C', '<Cmd>lua require("dig").remove_from_ignores(' .. win_buf .. ')<CR>',
+      { silent = true })
 
     -- 0 Based indexing in nvim api
     -- 1 based indexing with native lua
