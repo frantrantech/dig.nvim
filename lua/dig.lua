@@ -1,36 +1,81 @@
 local M = {}
 local popup = require("plenary.popup")
+local PREV_DIR_NAME = ".."
+local CURR_DIR_NAME = "."
 local COMMENT_CHAR = "#"
+local NEW_LINE = "\n"
+local FIRST_LS_INDEX = 6
+local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
 
-local function get_dir_contents(dir)
-  local ls = io.popen('ls -a ' .. dir .. '',"r")
-  local res = ls:read("a")
-  print(res)
-end
-
-local function get_all_files()
-  -- local files = io.tmpfile()
-  -- io.input(files)
-  get_dir_contents("/Users/francistran/Desktop/dig.nvim")
-end
-
-local function split(ignore_file, sep)
+local function split(str, sep)
   local arr = {}
   -- Split by sep and capture the str
-  for str in string.gmatch(ignore_file, '([^' .. sep .. ']+)')
+  for s in string.gmatch(str, '([^' .. sep .. ']+)')
   do
-    table.insert(arr, str)
+    table.insert(arr, s)
   end
   return arr
 end
 
--- Logic for reading in .ignore
-local function get_ignore_file()
-  -- io.input(ignore_file_name)
+local function strip_new_line(str)
+  return str:sub(1,string.len(str)-1)
+end
+
+
+-- Take a file name from ls and determine if it is a directory or notify
+-- Is a directory
+local function file_is_dir(path)
+  local is_dir = os.execute('[ -f "' .. path .. '" ]') == IS_DIR
+  return is_dir
+end
+
+-- Returns the result of calling "ls" on "dir" as an array
+local function get_dir_contents(dir)
+  local ls_output = io.popen('ls -a ' .. dir .. '', "r")
+  local ls = ls_output:read("a")
+  local ls_cleaned = ls:sub(FIRST_LS_INDEX)
+  local ls_arr = split(ls_cleaned, "\n")
+  return ls_arr
+end
+
+-- given a directory, update the file and dir arrays. recursively call this for all immediate child dirs
+local function get_dir_files(dir, all_files, all_dirs)
+  local dir_contents = get_dir_contents(dir)
+  local child_dirs = {}
+
+  -- Update global list of files and dirs
+  for i=1, table.getn(dir_contents)
+    do
+      local curr_path = '' .. dir.. '/'.. dir_contents[i] ..''
+      if file_is_dir(curr_path)
+        then
+          table.insert(all_dirs,curr_path)
+          table.insert(child_dirs,curr_path)
+        else
+          table.insert(all_files,curr_path)
+        end
+    end
+
+  -- Repeat for all child dirs of dir 
+  for i=1, table.getn(child_dirs)
+    do
+      get_dir_files(child_dirs[i],all_files, all_dirs)
+    end
+end
+
+local function get_all_dirs_files()
+  local project_root_pwd = io.popen("pwd")
+  local project_root_name = project_root_pwd:read("a")
+  local all_files = {}
+  local all_dirs = {}
+  get_dir_files(strip_new_line(project_root_name), all_files, all_dirs)
+  -- vim.print(all_files)
+end
+
+local function get_ignore_file_contents()
   io.input(git_ignore_file_name)
-  -- local fileData = io.read("*all")
   local fileData = io.read("a")
   io.close()
   return fileData
@@ -55,9 +100,9 @@ local function process_ignore_line(ignore_line)
 end
 
 local function process_ignore_file()
-  local ignore_file = get_ignore_file()
+  local ignore_file = get_ignore_file_contents()
   local ignore_file_lines = split(ignore_file, "\n")
-  local files_in_project = get_all_files()
+  local files_in_project = get_all_dirs_files()
   for i = 1, table.getn(ignore_file_lines)
   do
     process_ignore_line(ignore_file_lines[i])
@@ -106,8 +151,8 @@ end
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
   -- vim.notify("toggling")
-  process_ignore_file()
 
+  process_ignore_file()
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
   if window_is_open then
     -- close_window()
@@ -124,7 +169,6 @@ function M.toggle_window()
     -- vim.api.nvim_buf_set_lines(win_buf,1,1,true,{"Hello World2"})
     -- local line_ct = vim.api.nvim_buf_line_count(win_buf)
     -- local line1 = vim.api.nvim_buf_get_lines(win_buf, 1, 2, true)
-    -- print(line1[1])
   end
 end
 
