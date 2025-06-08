@@ -9,6 +9,14 @@ local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
 
+CURR_DIR = ""
+CURR_FILES = {}
+CURR_CHILD_DIRS = {}
+
+-- parent : children
+ALL_FILES = {}
+ALL_DIRS = {}
+
 local function split(str, sep)
   local arr = {}
   -- Split by sep and capture the str
@@ -20,9 +28,8 @@ local function split(str, sep)
 end
 
 local function strip_new_line(str)
-  return str:sub(1,string.len(str)-1)
+  return str:sub(1, string.len(str) - 1)
 end
-
 
 -- Take a file name from ls and determine if it is a directory or notify
 -- Is a directory
@@ -40,37 +47,52 @@ local function get_dir_contents(dir)
   return ls_arr
 end
 
+-- local curr_dir = {}
 -- given a directory, update the file and dir arrays. recursively call this for all immediate child dirs
-local function get_dir_files(dir, all_files, all_dirs)
+local function get_dir_files(dir, check_recursive)
   local dir_contents = get_dir_contents(dir)
-  local child_dirs = {}
 
-  -- Update global list of files and dirs
-  for i=1, table.getn(dir_contents)
-    do
-      local curr_path = '' .. dir.. '/'.. dir_contents[i] ..''
-      if file_is_dir(curr_path)
-        then
-          table.insert(all_dirs,curr_path)
-          table.insert(child_dirs,curr_path)
-        else
-          table.insert(all_files,curr_path)
-        end
-    end
+  CURR_DIR = dir
+  local curr_files = {}
+  local curr_child_dirs = {}
 
-  -- Repeat for all child dirs of dir 
-  for i=1, table.getn(child_dirs)
-    do
-      get_dir_files(child_dirs[i],all_files, all_dirs)
+  -- Update list of files and dirs
+  for i = 1, #dir_contents
+  do
+    local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
+    if file_is_dir(curr_path)
+    then
+      -- table.insert(ALL_DIRS, curr_path)
+      table.insert(curr_child_dirs, curr_path)
+    else
+      -- table.insert(ALL_FILES, curr_path)
+      table.insert(curr_files, curr_path)
     end
+  end
+
+  ALL_FILES[dir] = curr_files
+  ALL_DIRS[dir] = curr_child_dirs
+  -- table.insert(ALL_FILES,curr_files)
+  -- table.insert(ALL_FILES,curr_child_dirs)
+  -- Repeat for all child dirs of dir
+  if check_recursive
+  then
+    for i = 1, #child_dirs
+    do
+      get_dir_files(child_dirs[i], check_recursive)
+    end
+  end
+
+  return {
+    files = curr_files,
+    dirs = child_dirs
+  }
 end
 
 local function get_all_dirs_files()
   local project_root_pwd = io.popen("pwd")
   local project_root_name = project_root_pwd:read("a")
-  local all_files = {}
-  local all_dirs = {}
-  get_dir_files(strip_new_line(project_root_name), all_files, all_dirs)
+  get_dir_files(strip_new_line(project_root_name), false)
   -- vim.print(all_files)
 end
 
@@ -103,7 +125,7 @@ local function process_ignore_file()
   local ignore_file = get_ignore_file_contents()
   local ignore_file_lines = split(ignore_file, "\n")
   local files_in_project = get_all_dirs_files()
-  for i = 1, table.getn(ignore_file_lines)
+  for i = 1, #ignore_file_lines
   do
     process_ignore_line(ignore_file_lines[i])
   end
@@ -116,11 +138,17 @@ Dig_window_id = nil
 -- Returns the window_id and window to ensure that toggle() works correctly
 local function create_window()
   local window_buffer = vim.api.nvim_create_buf(false, false)
+
+  -- Stops buffer from trying to save
+  vim.api.nvim_buf_set_option(window_buffer, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(window_buffer, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(window_buffer, 'swapfile', false)
+
   local width = 70
   local height = 20
   local borderchars = { "─", "│", "─", "│", "╭", "╮", "╯", "╰" }
   Dig_window_id, Dig_window = popup.create(window_buffer, {
-    title = "Dig",
+    title = "Diging Through: " .. CURR_DIR,
     highlight = "DigWindow",
     line = math.floor(((vim.o.lines - height) / 2) - 1),
     col = math.floor((vim.o.columns - width) / 2),
@@ -133,11 +161,34 @@ local function create_window()
     "winhl", -- Highlights
     "Normal:DigBorder"
   )
-
   return {
     win_buf = window_buffer,
     win_id = Dig_window_id
   }
+end
+
+
+local function update_dig_window(win_buf)
+  local dirs = ALL_DIRS[CURR_DIR]
+  local files = ALL_FILES[CURR_DIR]
+  vim.api.nvim_buf_set_lines(win_buf, 0, 0, true, { CURR_DIR })
+  vim.print(files)
+
+  local last_line_idx = 1
+  for i = 1, #dirs
+  do
+    vim.api.nvim_buf_set_lines(win_buf, i, i, true, { dirs[i] })
+    last_line_idx = i
+  end
+
+  vim.api.nvim_buf_set_lines(win_buf, last_line_idx + 1, last_line_idx + 1, true, { "FILES" })
+
+  last_line_idx = last_line_idx + 2
+  for i = 1, #files
+  do
+    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { files[i] })
+    last_line_idx = last_line_idx + 1
+  end
 end
 
 --Dig_window_id should be non null here
@@ -152,20 +203,21 @@ end
 function M.toggle_window()
   -- vim.notify("toggling")
 
-  process_ignore_file()
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
   if window_is_open then
-    -- close_window()
-    -- return
+    close_window()
+    return
   else
-    -- local win = create_window()
-    -- local win_buf = win.win_buf
-    -- vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
-    --   { silent = true })
+    process_ignore_file()
+    local win = create_window()
+    local win_buf = win.win_buf
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
+      { silent = true })
 
     -- 0 Based indexing in nvim api
     -- 1 based indexing with native lua
-    -- vim.api.nvim_buf_set_lines(win_buf,0,0,true,{"Hello World"})
+    update_dig_window(win_buf)
+    -- vim.api.nvim_buf_set_lines(win_buf,0,0,true,{all_files[1]})
     -- vim.api.nvim_buf_set_lines(win_buf,1,1,true,{"Hello World2"})
     -- local line_ct = vim.api.nvim_buf_line_count(win_buf)
     -- local line1 = vim.api.nvim_buf_get_lines(win_buf, 1, 2, true)
