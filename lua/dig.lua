@@ -4,6 +4,7 @@ local popup = require("plenary.popup")
 local COMMENT_CHAR = "#"
 local NEW_LINE = "\n"
 local SLASH = "/"
+local PREV_DIR = ".."
 local FIRST_LS_INDEX = 6 -- Set to 6 to get rid of ../. Set to 3 to get rid of ./.
 local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
@@ -11,6 +12,7 @@ local ignore_file_name = "./.ignore"
 local DIR_IS_IGNORED = 100
 local DIR_IS_PARTIALLY_IGNORED = 200
 
+ROOT_DIR = ""
 -- The contents of the ignore file we just read in
 IGNORE_FILE = {}
 -- Ignored dirs from the ignore file
@@ -66,6 +68,20 @@ end
 local function dir_path_has_end_slash(path)
   local last_char = string.char(path:byte(-1))
   return last_char == SLASH
+end
+
+-- Transforms /foo/fum/ to /foo
+local function remove_last_dir_from_path(path)
+  local last_char_pos = #path
+  for i = #path, 1, -1 do
+    local curr_char = path:sub(i, i)
+    if curr_char == SLASH
+    then
+      last_char_pos = i
+      return path:sub(1, last_char_pos - 1)
+    end
+  end
+  return path
 end
 
 -- Returns the result of calling "ls" on "dir" as an array
@@ -148,6 +164,7 @@ local function update_dir(dir)
   for i = 1, #dir_contents
   do
     local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
+    -- print(dir,dir_contents[i], " xxxx ",curr_path)
     if path_is_dir(curr_path)
     then
       table.insert(curr_child_dirs, curr_path)
@@ -172,6 +189,8 @@ end
 local function update_root_dirs_files()
   local project_root_pwd = io.popen("pwd")
   local project_root_name = project_root_pwd:read("a")
+  local root_dir = strip_new_line(project_root_name)
+  ROOT_DIR = root_dir
   update_dir(strip_new_line(project_root_name))
 end
 
@@ -282,7 +301,7 @@ local function update_dig_window(win_buf)
   local dirs = ALL_DIRS[CURR_DIR]
   local files = ALL_FILES[CURR_DIR]
 
-  vim.api.nvim_buf_set_lines(win_buf, 0, -1, false, {})
+  vim.api.nvim_buf_set_lines(win_buf, 0, -1, false, { PREV_DIR })
 
   -- Set Dirs
   local last_line_idx = 1
@@ -331,9 +350,15 @@ end
 -- If file -> do nothing?
 function M.enter_path(win_buf)
   local path = vim.api.nvim_get_current_line()
-  print("Entering: ", path)
+  print(path)
   if path_is_dir(path)
   then
+    -- Do not move if we are currently in root_dir
+    if CURR_DIR == ROOT_DIR and path == PREV_DIR then return end
+    if path == PREV_DIR
+    then
+      path = remove_last_dir_from_path(CURR_DIR)
+    end
     update_dir(path)
     update_dig_window(win_buf)
   else
