@@ -3,17 +3,20 @@ local M = {}
 local popup = require("plenary.popup")
 local COMMENT_CHAR = "#"
 local NEW_LINE = "\n"
+local SLASH = "/"
 local FIRST_LS_INDEX = 6 -- Set to 6 to get rid of ../. Set to 3 to get rid of ./.
 local IS_DIR = 256
 local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
 local DIR_IS_IGNORED = 100
 local DIR_IS_PARTIALLY_IGNORED = 200
-local X = "❌"
-local Y = "✅"
 
 -- The contents of the ignore file we just read in
 IGNORE_FILE = {}
+-- Ignored dirs from the ignore file
+IGNORE_FILE_DIRS = {}
+-- Ignored files from the ignore file
+IGNORE_FILE_FILES = {}
 -- Active directory of dig, used to index ALL_FILES.
 -- Storing in ALL_FILES so we can incrementaly load the project structure.
 CURR_DIR = ""
@@ -22,10 +25,12 @@ CURR_DIR = ""
 ALL_FILES = {}
 ALL_DIRS = {}
 
+-- Track state of what files/dirs are ignored
 -- path_to_file: bool
 -- If nil then not ignored
 IGNORED_FILES = {}
 IGNORED_DIRS = {}
+
 
 local function filter(arr, filter_fn)
   local result = {}
@@ -58,6 +63,11 @@ local function path_is_dir(path)
   return is_dir
 end
 
+local function dir_path_has_end_slash(path)
+  local last_char = string.char(path:byte(-1))
+  return last_char == SLASH
+end
+
 -- Returns the result of calling "ls" on "dir" as an array
 local function get_dir_contents(dir)
   local ls_output = io.popen('ls -a ' .. dir .. '', "r")
@@ -71,15 +81,37 @@ local function get_dir_contents(dir)
   return ls_filtered
 end
 
--- TODO: The work begins here
+-- Returns true if the given dir_path is supposed to be ignored
+-- @dir_path is an abs path to a dir
 local function dir_is_in_ignore_file(dir_path)
-  vim.print(IGNORE_FILE)
-  for i = 1, #IGNORE_FILE
+  for i = 1, #IGNORE_FILE_DIRS
   do
-    local ignore_line = IGNORE_FILE[i]
+    local ignore_dir_line = IGNORE_FILE_DIRS[i]
+    local end_slash_case = dir_path_has_end_slash(ignore_dir_line)
+    if end_slash_case
+    then
+      ignore_dir_line = string.sub(ignore_dir_line, 1, -2)
+    end
+    local dir_path_is_in_ignore = string.find(dir_path, ignore_dir_line, 1, true)
+    if dir_path_is_in_ignore
+    then
+      return true
+    end
   end
+  return false
 end
+
 local function file_is_in_ignore_file(file_path)
+  for i = 1, #IGNORE_FILE_FILES
+  do
+    local ignore_file_line = IGNORE_FILE_FILES[i]
+    local file_path_is_in_ignore = string.find(file_path, ignore_file_line, 1, true)
+    if file_path_is_in_ignore
+    then
+      return true
+    end
+  end
+  return false
 end
 
 -- local function set_dir_partially_ignored(dir_path, is_partially_ignored)
@@ -126,6 +158,8 @@ local function update_dir(dir)
     end
   end
 
+  -- print(vim.inspect(IGNORED_DIRS))
+  -- print(vim.inspect(IGNORED_FILES))
   ALL_FILES[dir] = curr_files
   ALL_DIRS[dir] = curr_child_dirs
 
@@ -173,6 +207,18 @@ local function process_ignore_file()
   IGNORE_FILE = filter(ignore_arr, function(ignore_line)
     return ignore_line:sub(1, 1) ~= COMMENT_CHAR
   end)
+
+  for i = 1, #IGNORE_FILE
+  do
+    if path_is_dir(IGNORE_FILE[i])
+    then
+      local IGNORE_DIR_NO_END_SLASH = IGNORE_FILE
+      table.insert(IGNORE_FILE_DIRS, IGNORE_FILE[i])
+    else
+      table.insert(IGNORE_FILE_FILES, IGNORE_FILE[i])
+    end
+  end
+
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   local files_in_project = update_root_dirs_files()
 end
@@ -185,12 +231,12 @@ end
 
 local function get_dir_is_ignored(dir_path)
   local ignored_status = IGNORED_DIRS[dir_path]
-  return not (ignored_status ~= nil and ignored_status == DIR_IS_IGNORED)
+  return ignored_status ~= nil and ignored_status == DIR_IS_IGNORED
 end
 
 local function get_file_is_ignored(path)
   local ignored_status = IGNORED_FILES[path]
-  return not (ignored_status ~= nil and ignored_status == true)
+  return ignored_status ~= nil and ignored_status == true
 end
 
 Dig_window = nil
@@ -205,6 +251,9 @@ local function create_window()
   vim.api.nvim_buf_set_option(window_buffer, 'buftype', 'nofile')
   vim.api.nvim_buf_set_option(window_buffer, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(window_buffer, 'swapfile', false)
+
+  -- Set color for ignore line
+  vim.api.nvim_set_hl(0, "IgnoreLineColor", { fg = "#ff0000", bg = "#000000" })
 
   local width = 70
   local height = 20
@@ -241,11 +290,12 @@ local function update_dig_window(win_buf)
   do
     local dir_is_ignored = get_dir_is_ignored(dirs[i])
     local dir_is_partially_ignored = get_dir_is_partially_ignored(dirs[i])
-    -- local icon = Y
-    -- if dir_is_ignored then icon = X end
-    -- local dir_display = '' .. icon .. ' ' .. dirs[i]
     local dir_display = dirs[i]
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
+    if dir_is_ignored
+    then
+      vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
+    end
     last_line_idx = last_line_idx + 1
   end
 
@@ -255,21 +305,25 @@ local function update_dig_window(win_buf)
   for i = 1, #files
   do
     local file_is_ignored = get_file_is_ignored(files[i])
-    -- local icon = Y
-    -- if file_is_ignored then icon = X end
-    -- path_str = '' .. icon .. ' ' .. files[i]
     local path_str = files[i]
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
+    if file_is_ignored
+    then
+      vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
+    end
     last_line_idx = last_line_idx + 1
   end
 end
 
 function M.add_to_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
+  set_file_ignored(path, true)
+  print("Adding to ignores: ", path)
 end
 
 function M.remove_from_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
+  print("Removing to ignores: ", path)
 end
 
 -- User has just tried to enter a path.
@@ -277,6 +331,7 @@ end
 -- If file -> do nothing?
 function M.enter_path(win_buf)
   local path = vim.api.nvim_get_current_line()
+  print("Entering: ", path)
   if path_is_dir(path)
   then
     update_dir(path)
@@ -294,8 +349,6 @@ end
 -- Creates a window if it isn't open.
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
-  -- vim.notify("toggling")
-
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
   if window_is_open then
     close_window()
@@ -333,5 +386,5 @@ function M.toggle_window()
   end
 end
 
-vim.keymap.set('n', '<leader>-', '<Cmd>lua require("dig").toggle_window()<CR>')
+vim.keymap.set('n', '<leader>\'', '<Cmd>lua require("dig").toggle_window()<CR>')
 return M
