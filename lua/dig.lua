@@ -334,15 +334,30 @@ local function update_dig_window(win_buf)
   end
 end
 
+-- Update IGNORED_FILE / IGNORED_DIRS
+-- Update Styling of line
 function M.add_to_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
-  set_file_ignored(path, true)
-  print("Adding to ignores: ", path)
+  local line_idx = vim.api.nvim_win_get_cursor(0)[1]
+  vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", line_idx - 1, 0, -1)
+  if path_is_dir(path)
+  then
+    set_dir_ignored(path, true)
+  else
+    set_file_ignored(path, true)
+  end
 end
 
 function M.remove_from_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
-  print("Removing to ignores: ", path)
+  local line_idx = vim.api.nvim_win_get_cursor(0)[1]
+  vim.api.nvim_buf_clear_namespace(0, -1, line_idx - 1,line_idx)
+  if path_is_dir(path)
+  then
+    set_dir_ignored(path, false)
+  else
+    set_file_ignored(path, false)
+  end
 end
 
 -- User has just tried to enter a path.
