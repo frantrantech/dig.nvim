@@ -104,13 +104,11 @@ local function dir_is_in_ignore_file(dir_path)
   do
     local ignore_dir_line = IGNORE_FILE_DIRS[i]
     local end_slash_case = dir_path_has_end_slash(ignore_dir_line)
-    if end_slash_case
-    then
+    if end_slash_case then
       ignore_dir_line = string.sub(ignore_dir_line, 1, -2)
     end
     local dir_path_is_in_ignore = string.find(dir_path, ignore_dir_line, 1, true)
-    if dir_path_is_in_ignore
-    then
+    if dir_path_is_in_ignore then
       return true
     end
   end
@@ -122,8 +120,7 @@ local function file_is_in_ignore_file(file_path)
   do
     local ignore_file_line = IGNORE_FILE_FILES[i]
     local file_path_is_in_ignore = string.find(file_path, ignore_file_line, 1, true)
-    if file_path_is_in_ignore
-    then
+    if file_path_is_in_ignore then
       return true
     end
   end
@@ -132,8 +129,9 @@ end
 
 -- local function set_dir_partially_ignored(dir_path, is_partially_ignored)
 --   if is_partially_ignored then IGNORED_DIRS[dir_path] = DIR_IS_PARTIALLY_IGNORED
+--   end
 -- end
---
+
 local function set_dir_ignored(dir_path, is_ignored)
   if is_ignored then IGNORED_DIRS[dir_path] = DIR_IS_IGNORED end
 end
@@ -141,18 +139,18 @@ local function set_file_ignored(path, is_ignored)
   IGNORED_FILES[path] = is_ignored
 end
 
--- Given a directory, update the file and dir arrays. Update the ignored table.
--- CURR_DIR is global state that represents our cwd
---
+
 -- If we have already ran this function on "dir" then we skip.
 --  TODO: Add a way to check if we should update the contents of dir.
 --    Maintain a set of (need to update) so that we can check
 --      if dir in seen and dir not in need_to_update then skip
+--
+-- Given a directory, update the file and dir arrays. Update the ignored table.
+-- CURR_DIR is global state that represents our cwd
 local function update_dir(dir)
   CURR_DIR = dir
   -- If we've alrady seen this dir, don't look at this dir anymore
-  if ALL_DIRS[CURR_DIR]
-  then
+  if ALL_DIRS[CURR_DIR] then
     return
   end
 
@@ -165,8 +163,7 @@ local function update_dir(dir)
   do
     local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
     -- print(dir,dir_contents[i], " xxxx ",curr_path)
-    if path_is_dir(curr_path)
-    then
+    if path_is_dir(curr_path) then
       table.insert(curr_child_dirs, curr_path)
       set_dir_ignored(curr_path, dir_is_in_ignore_file(curr_path))
     else
@@ -229,8 +226,7 @@ local function process_ignore_file()
 
   for i = 1, #IGNORE_FILE
   do
-    if path_is_dir(IGNORE_FILE[i])
-    then
+    if path_is_dir(IGNORE_FILE[i]) then
       local IGNORE_DIR_NO_END_SLASH = IGNORE_FILE
       table.insert(IGNORE_FILE_DIRS, IGNORE_FILE[i])
     else
@@ -311,8 +307,7 @@ local function update_dig_window(win_buf)
     local dir_is_partially_ignored = get_dir_is_partially_ignored(dirs[i])
     local dir_display = dirs[i]
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
-    if dir_is_ignored
-    then
+    if dir_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
     end
     last_line_idx = last_line_idx + 1
@@ -326,8 +321,7 @@ local function update_dig_window(win_buf)
     local file_is_ignored = get_file_is_ignored(files[i])
     local path_str = files[i]
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
-    if file_is_ignored
-    then
+    if file_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
     end
     last_line_idx = last_line_idx + 1
@@ -340,8 +334,7 @@ function M.add_to_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
   local line_idx = vim.api.nvim_win_get_cursor(0)[1]
   vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", line_idx - 1, 0, -1)
-  if path_is_dir(path)
-  then
+  if path_is_dir(path) then
     set_dir_ignored(path, true)
   else
     set_file_ignored(path, true)
@@ -351,9 +344,8 @@ end
 function M.remove_from_ignores(win_buf)
   local path = vim.api.nvim_get_current_line()
   local line_idx = vim.api.nvim_win_get_cursor(0)[1]
-  vim.api.nvim_buf_clear_namespace(0, -1, line_idx - 1,line_idx)
-  if path_is_dir(path)
-  then
+  vim.api.nvim_buf_clear_namespace(0, -1, line_idx - 1, line_idx)
+  if path_is_dir(path) then
     set_dir_ignored(path, false)
   else
     set_file_ignored(path, false)
@@ -365,13 +357,10 @@ end
 -- If file -> do nothing?
 function M.enter_path(win_buf)
   local path = vim.api.nvim_get_current_line()
-  print(path)
-  if path_is_dir(path)
-  then
+  if path_is_dir(path) then
     -- Do not move if we are currently in root_dir
     if CURR_DIR == ROOT_DIR and path == PREV_DIR then return end
-    if path == PREV_DIR
-    then
+    if path == PREV_DIR then
       path = remove_last_dir_from_path(CURR_DIR)
     end
     update_dir(path)
