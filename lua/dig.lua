@@ -12,6 +12,20 @@ local ignore_file_name = "./.ignore"
 local DIR_IS_IGNORED = 100
 local DIR_IS_PARTIALLY_IGNORED = 200
 
+-- local DIR_ROOT_IGNORE_CASE = 10
+-- local DIR_ROOT_IGNORE_NO_FILE_CASE = 11
+-- local FILE_ROOT_IGNORE_CASE = 20
+-- local FILE_IGNORE_ANYWHERE_CASE = 21
+-- local FILE_IGNORE_EXTENSION_CASE = 22
+-- local DEFAULT_ROOT_CASE = 23
+
+local DIR_BASIC_CASE = "DIR_BASIC_CASE"
+local DIR_IGNORE_NO_FILE_CASE = "DIR_IGNORE_NO_FILE_CASE"
+local DIR_NO_EXT_NO_SLASH_CASE = "DIR_NO_EXT_NO_SLASH_CASE"
+local FILE_BASIC_CASE = "FILE_BASIC_CASE"
+local FILE_IGNORE_ANYWHERE_CASE = "FILE_IGNORE_ANYWHERE_CASE"
+local FILE_IGNORE_EXTENSION_CASE = "FILE_IGNORE_EXTENSION_CASE"
+
 ROOT_DIR = ""
 -- The contents of the ignore file we just read in
 IGNORE_FILE = {}
@@ -33,6 +47,12 @@ ALL_DIRS = {}
 IGNORED_FILES = {}
 IGNORED_DIRS = {}
 
+-- Maps an ingore line to the case
+-- I.E */.py -> IGNORE_EXTENSION
+IGNORE_FILE_CASES = {}
+
+IGNORED_EXTENSIONS = {}
+IGNORED_GLOBAL_FILES = {}
 
 local function filter(arr, filter_fn)
   local result = {}
@@ -97,6 +117,14 @@ local function get_dir_contents(dir)
   return ls_filtered
 end
 
+function CASE_TO_STRING_MAPPER(case)
+  if case == DIR_BASIC_CASE then print("Dir Root Ignore") end
+  if case == DIR_IGNORE_NO_FILE_CASE then print("Dir Root Ignore No File") end
+  if case == FILE_BASIC_CASE then print("File Root Ignore") end
+  if case == FILE_IGNORE_ANYWHERE_CASE then print("File Ingore anywhere") end
+  if case == FILE_IGNORE_EXTENSION_CASE then print("File Ignore Extension") end
+end
+
 --[[
 --    Case 1: / Seperator case
         3.a: / in start or middle
@@ -118,68 +146,81 @@ end
         Important:  It is not possible to re-include a file if a parent directory of that file is excluded.
 --]]
 
-
 -- Need a seperate function to see if a path from ignore is file or function
 local function ignore_path_is_dir(path)
   local ends_with_slash = path:sub(-1, -1) == SLASH
   if ends_with_slash then return true end
   local is_dot_file = path:match("^%.[%w_]") -- Match from start of string; Escape . ; words or _
   if is_dot_file then return false end
-  local ends_with_extension = path:match("%.[%w]+$") or path:match("%*%.[%w]+") --Escape to find . ; any number of word characters; EoS
+  local ends_with_extension = path:match("%.[%w]+$") or
+      path:match("%*%.[%w]+") --Escape to find . ; any number of word characters; EoS
   if ends_with_extension then return false end
   -- No end slash, is not dot file, no  extension, default this to dir
   return true
 end
 
--- Returns true if this file is a root level ignore
--- dirs:  /.git
---  Check if leading /
---  Will match all dirs AND files from root
-local function is_dir_root_ignore(path)
-  if ignore_path_is_dir(path) then
-    local first_char = path:sub(1, 1)
-    return first_char == SLASH
-  else
-  end
+-- Returns true if this dir is a basic ignore
+-- Basic: No *, ?,!
+-- Is basic if our first_slash is not the last character
+local function is_basic_ignore(path)
+  local last_char = path:sub(-1, -1)
+  local first_slash_pos = string.find(path, "/", 1)
+  return first_slash_pos and first_slash_pos < #path and last_char ~= SLASH
 end
 
--- Returns true if the file is a dir root ignore case without files
--- Assumes is_root_ignore returns true
--- Checks /foo/ case.
---  Check if last char is "/"
--- This case doesn't ignore files named foo
+-- Returns true if we this path is meant to ignore dirs with files
 local function is_dir_root_ignore_without_file(path)
   local last_char = path:sub(-1, -1)
   return last_char == SLASH
 end
 
--- Returns true if this file is a root level ignore
--- files: .DS_Store
---  Check if no "/" or /.DS_Store
---  Not checking leading slash because our path_is_dir returns true for it. TODO FIX
-local function is_file_root_ignore(path)
-  local slash_exists = path:sub(1, 1) == SLASH
+-- Returns true if this file is a basic ignore
+-- Basic: No *, ?, !
+-- Is basic if it doesn't have one of the above cases
+local function is_basic_file_ignore_case(path)
+  local is_dot_file = path:match("^%.[%w_]+$")
+  local path_has_extension = path:match("%.[%w]+$") or path:match("%*%.[%w]+")
+  local path_has_asterisk_dot_extension = string.match(path, "%*") ~= nil
+  -- local starts_with_slash = path:sub(1, 1) == SLASH
   -- local ends_with_slash = string.find(path, SLASH, 1, true) == nil
-  return slash_exists
+  return (is_dot_file or path_has_extension) and not path_has_asterisk_dot_extension
 end
 
 local function is_file_ignore_anywhere_case(path)
-  local path_starts_with_asterisks = string.match(path, "%*%*") ~= nil
-  return path_starts_with_asterisks
+  local double_asterisks_pos = string.find(path, "%*%*")
+  if double_asterisks_pos == nil then return false end
+  return double_asterisks_pos
 end
 
+local function file_ignore_extension_path(path)
+  local path_extension_pos = string.find(path, "/%.[%w]+$")
+  if path_extension_pos == nil then return false end
+  return path_extension_pos
+end
 
+-- Given a line from an ignore file, update our state for what we should be ignoring
 -- Given a line from an ignore file, determine what case it is.
-local function get_ignore_case(path)
+local function process_ignore_case(path)
   if ignore_path_is_dir(path) then
-    -- DIR CASE
-    local path_is_root_ignore = is_dir_root_ignore(path)
+    local is_root_ignore = is_basic_ignore(path)
+    if is_root_ignore then return DIR_BASIC_CASE end
     local path_is_root_ignore_no_files = is_dir_root_ignore_without_file(path)
-    -- print("DIR ", path_is_root_ignore, path_is_root_ignore_no_files, path)
+    if path_is_root_ignore_no_files then return DIR_IGNORE_NO_FILE_CASE end
+    return DIR_NO_EXT_NO_SLASH_CASE
   else
-    -- FILE CASE
-    local is_root_ignore = is_file_root_ignore(path)
-    local is_ignore_anywhere = is_file_ignore_anywhere_case(path)
+    local is_root_ignore = is_basic_file_ignore_case(path)
+    if is_root_ignore then return FILE_BASIC_CASE end
+    local ignore_anywhere_pos = is_file_ignore_anywhere_case(path)
+    if ignore_anywhere_pos then
+      table.insert(IGNORED_GLOBAL_FILES,path:sub(ignore_anywhere_pos+3,#path))
+      return FILE_IGNORE_ANYWHERE_CASE
+    end
+    local extension_pos = file_ignore_extension_path(path)
+    if extension_pos then
+      table.insert(IGNORED_EXTENSIONS,path:sub(extension_pos+1,#path))
+      return FILE_IGNORE_EXTENSION_CASE
+    end
+    return 5000
   end
 end
 
@@ -193,7 +234,6 @@ local function dir_is_in_ignore_file(dir_path)
     if end_slash_case then
       ignore_dir_line = string.sub(ignore_dir_line, 1, -2)
     end
-    get_ignore_case(ignore_dir_line)
     local dir_path_is_in_ignore = string.find(dir_path, ignore_dir_line, 1, true)
     if dir_path_is_in_ignore then
       return true
@@ -207,7 +247,6 @@ local function file_is_in_ignore_file(file_path)
   do
     local ignore_file_line = IGNORE_FILE_FILES[i]
     local file_path_is_in_ignore = string.find(file_path, ignore_file_line, 1, true)
-    get_ignore_case(ignore_file_line)
     if file_path_is_in_ignore then
       return true
     end
@@ -297,17 +336,17 @@ local function process_ignore_file()
 
   for i = 1, #IGNORE_FILE
   do
+    IGNORE_FILE_CASES[IGNORE_FILE[i]] = process_ignore_case(IGNORE_FILE[i])
     if ignore_path_is_dir(IGNORE_FILE[i]) then
-      print(IGNORE_FILE[i], " DIR")
       table.insert(IGNORE_FILE_DIRS, IGNORE_FILE[i])
     else
-      print(IGNORE_FILE[i], " FILE")
       table.insert(IGNORE_FILE_FILES, IGNORE_FILE[i])
     end
   end
 
-  -- print(vim.inspect(IGNORE_FILE_DIRS))
-  -- print(vim.inspect(IGNORE_FILE_FILES))
+  print(vim.inspect(IGNORE_FILE_CASES))
+  print(vim.inspect(IGNORED_EXTENSIONS))
+  print(vim.inspect(IGNORED_GLOBAL_FILES))
 
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   update_root_dirs_files()
