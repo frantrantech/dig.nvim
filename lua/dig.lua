@@ -50,8 +50,9 @@ IGNORED_DIRS = {}
 -- Maps an ingore line to the case
 -- I.E */.py -> IGNORE_EXTENSION
 IGNORE_FILE_CASES = {}
-
-IGNORED_EXTENSIONS = {}
+-- Tracks what file extension we should always ignore
+IGNORED_FILE_EXTENSIONS = {}
+-- Tracks what files we should always ignore
 IGNORED_GLOBAL_FILES = {}
 
 local function filter(arr, filter_fn)
@@ -72,6 +73,15 @@ local function split(str, sep)
     table.insert(arr, s)
   end
   return arr
+end
+
+local function right_find(str, ch)
+  local last_pos = -1
+  for i = 1, #str
+  do
+    if (str:sub(i,i) == ch) then last_pos = i end
+  end
+  return last_pos
 end
 
 local function strip_new_line(str)
@@ -117,6 +127,12 @@ local function get_dir_contents(dir)
   return ls_filtered
 end
 
+local function get_file_name(file_path)
+  local last_slash_pos = right_find(file_path,SLASH)
+  local file_name = file_path:sub(last_slash_pos + 1)
+  return file_name
+end
+
 function CASE_TO_STRING_MAPPER(case)
   if case == DIR_BASIC_CASE then print("Dir Root Ignore") end
   if case == DIR_IGNORE_NO_FILE_CASE then print("Dir Root Ignore No File") end
@@ -124,27 +140,6 @@ function CASE_TO_STRING_MAPPER(case)
   if case == FILE_IGNORE_ANYWHERE_CASE then print("File Ingore anywhere") end
   if case == FILE_IGNORE_EXTENSION_CASE then print("File Ignore Extension") end
 end
-
---[[
---    Case 1: / Seperator case
-        3.a: / in start or middle
-            Pattern must match; relative to .ignore
-        3.b: / at end
-            Pattern can match any level below .ignore
-    Case 2: * Asterisk case ->  Match anything
-        2.a: ? Question case ->  Match 1 char (not /)
-    Case 3: ** Double Asterisk Case -> Special cases
-        3.a: Leading ** case -> Match all dirs
-            **/foo -> matches file or dir named foo everywhere
-            **/foo/bar -> matches bar files and dirs under all dirs named foo
-        3.b: Ending ** case -> Match in everything inside
-            foo/bar/** -> Match all files inside foo/bar
-        3.c: Middle ** case -> Match 1 or more dirs
-            foo/**/bar -> Match all files in foo/x/bar, foo/y/bar, etc
-    Case 4: ! case: Negates the pattern; Any matching file excluded by a prev pattern will become included again.
-        This needs to have a \ infront of the !
-        Important:  It is not possible to re-include a file if a parent directory of that file is excluded.
---]]
 
 -- Need a seperate function to see if a path from ignore is file or function
 local function ignore_path_is_dir(path)
@@ -212,12 +207,14 @@ local function process_ignore_case(path)
     if is_root_ignore then return FILE_BASIC_CASE end
     local ignore_anywhere_pos = is_file_ignore_anywhere_case(path)
     if ignore_anywhere_pos then
-      table.insert(IGNORED_GLOBAL_FILES,path:sub(ignore_anywhere_pos+3,#path))
+      local file_name = path:sub(ignore_anywhere_pos + 3, #path)
+      IGNORED_GLOBAL_FILES[file_name] = 1
+      table.insert(IGNORED_GLOBAL_FILES, file_name)
       return FILE_IGNORE_ANYWHERE_CASE
     end
     local extension_pos = file_ignore_extension_path(path)
     if extension_pos then
-      table.insert(IGNORED_EXTENSIONS,path:sub(extension_pos+1,#path))
+      table.insert(IGNORED_FILE_EXTENSIONS, path:sub(extension_pos + 1, #path))
       return FILE_IGNORE_EXTENSION_CASE
     end
     return 5000
@@ -247,9 +244,9 @@ local function file_is_in_ignore_file(file_path)
   do
     local ignore_file_line = IGNORE_FILE_FILES[i]
     local file_path_is_in_ignore = string.find(file_path, ignore_file_line, 1, true)
-    if file_path_is_in_ignore then
-      return true
-    end
+    local file_name = get_file_name(file_path)
+    if IGNORED_GLOBAL_FILES[file_name] then return true end
+    if file_path_is_in_ignore then return true end
   end
   return false
 end
@@ -344,9 +341,7 @@ local function process_ignore_file()
     end
   end
 
-  print(vim.inspect(IGNORE_FILE_CASES))
-  print(vim.inspect(IGNORED_EXTENSIONS))
-  print(vim.inspect(IGNORED_GLOBAL_FILES))
+  print(vim.inspect(IGNORED_GLOBAL_FILES["app.py"]))
 
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   update_root_dirs_files()
