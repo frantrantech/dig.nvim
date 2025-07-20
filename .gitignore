@@ -1,5 +1,26 @@
 #THIS IS A COMMENT
+
+#FILE Root Level ignore
 .DS_Store
-.ignore
+
+#FILE Ignore ANYWHERE
+**/app.py
+
+#FILE Ignore all filetype
+*/.ts
+
+#Root level ignore NO FILE MATCH
 /test_dirs/
+
+#Root level ignore WITH FILE MATCH
 /dir_tester
+
+# Nested file ignore
+/test_dirs/one_level_dir/init.lua
+
+#Nested dir 
+/test_dirs/two_level_dir
+
+
+#Cases not tested yet
+# /.DS_Store

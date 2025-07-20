@@ -97,6 +97,92 @@ local function get_dir_contents(dir)
   return ls_filtered
 end
 
+--[[
+--    Case 1: / Seperator case
+        3.a: / in start or middle
+            Pattern must match; relative to .ignore
+        3.b: / at end
+            Pattern can match any level below .ignore
+    Case 2: * Asterisk case ->  Match anything
+        2.a: ? Question case ->  Match 1 char (not /)
+    Case 3: ** Double Asterisk Case -> Special cases
+        3.a: Leading ** case -> Match all dirs
+            **/foo -> matches file or dir named foo everywhere
+            **/foo/bar -> matches bar files and dirs under all dirs named foo
+        3.b: Ending ** case -> Match in everything inside
+            foo/bar/** -> Match all files inside foo/bar
+        3.c: Middle ** case -> Match 1 or more dirs
+            foo/**/bar -> Match all files in foo/x/bar, foo/y/bar, etc
+    Case 4: ! case: Negates the pattern; Any matching file excluded by a prev pattern will become included again.
+        This needs to have a \ infront of the !
+        Important:  It is not possible to re-include a file if a parent directory of that file is excluded.
+--]]
+
+
+-- Need a seperate function to see if a path from ignore is file or function
+local function ignore_path_is_dir(path)
+  local ends_with_slash = path:sub(-1, -1) == SLASH
+  if ends_with_slash then return true end
+  local is_dot_file = path:match("^%.[%w_]") -- Match from start of string; Escape . ; words or _
+  if is_dot_file then return false end
+  local ends_with_extension = path:match("%.[%w]+$") or path:match("%*%.[%w]+") --Escape to find . ; any number of word characters; EoS
+  if ends_with_extension then return false end
+  -- No end slash, is not dot file, no  extension, default this to dir
+  return true
+end
+
+-- Returns true if this file is a root level ignore
+-- dirs:  /.git
+--  Check if leading /
+--  Will match all dirs AND files from root
+local function is_dir_root_ignore(path)
+  if ignore_path_is_dir(path) then
+    local first_char = path:sub(1, 1)
+    return first_char == SLASH
+  else
+  end
+end
+
+-- Returns true if the file is a dir root ignore case without files
+-- Assumes is_root_ignore returns true
+-- Checks /foo/ case.
+--  Check if last char is "/"
+-- This case doesn't ignore files named foo
+local function is_dir_root_ignore_without_file(path)
+  local last_char = path:sub(-1, -1)
+  return last_char == SLASH
+end
+
+-- Returns true if this file is a root level ignore
+-- files: .DS_Store
+--  Check if no "/" or /.DS_Store
+--  Not checking leading slash because our path_is_dir returns true for it. TODO FIX
+local function is_file_root_ignore(path)
+  local slash_exists = path:sub(1, 1) == SLASH
+  -- local ends_with_slash = string.find(path, SLASH, 1, true) == nil
+  return slash_exists
+end
+
+local function is_file_ignore_anywhere_case(path)
+  local path_starts_with_asterisks = string.match(path, "%*%*") ~= nil
+  return path_starts_with_asterisks
+end
+
+
+-- Given a line from an ignore file, determine what case it is.
+local function get_ignore_case(path)
+  if ignore_path_is_dir(path) then
+    -- DIR CASE
+    local path_is_root_ignore = is_dir_root_ignore(path)
+    local path_is_root_ignore_no_files = is_dir_root_ignore_without_file(path)
+    -- print("DIR ", path_is_root_ignore, path_is_root_ignore_no_files, path)
+  else
+    -- FILE CASE
+    local is_root_ignore = is_file_root_ignore(path)
+    local is_ignore_anywhere = is_file_ignore_anywhere_case(path)
+  end
+end
+
 -- Returns true if the given dir_path is supposed to be ignored
 -- @dir_path is an abs path to a dir
 local function dir_is_in_ignore_file(dir_path)
@@ -107,6 +193,7 @@ local function dir_is_in_ignore_file(dir_path)
     if end_slash_case then
       ignore_dir_line = string.sub(ignore_dir_line, 1, -2)
     end
+    get_ignore_case(ignore_dir_line)
     local dir_path_is_in_ignore = string.find(dir_path, ignore_dir_line, 1, true)
     if dir_path_is_in_ignore then
       return true
@@ -120,6 +207,7 @@ local function file_is_in_ignore_file(file_path)
   do
     local ignore_file_line = IGNORE_FILE_FILES[i]
     local file_path_is_in_ignore = string.find(file_path, ignore_file_line, 1, true)
+    get_ignore_case(ignore_file_line)
     if file_path_is_in_ignore then
       return true
     end
@@ -138,7 +226,6 @@ end
 local function set_file_ignored(path, is_ignored)
   IGNORED_FILES[path] = is_ignored
 end
-
 
 -- If we have already ran this function on "dir" then we skip.
 --  TODO: Add a way to check if we should update the contents of dir.
@@ -162,7 +249,6 @@ local function update_dir(dir)
   for i = 1, #dir_contents
   do
     local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
-    -- print(dir,dir_contents[i], " xxxx ",curr_path)
     if path_is_dir(curr_path) then
       table.insert(curr_child_dirs, curr_path)
       set_dir_ignored(curr_path, dir_is_in_ignore_file(curr_path))
@@ -172,8 +258,6 @@ local function update_dir(dir)
     end
   end
 
-  -- print(vim.inspect(IGNORED_DIRS))
-  -- print(vim.inspect(IGNORED_FILES))
   ALL_FILES[dir] = curr_files
   ALL_DIRS[dir] = curr_child_dirs
 
@@ -183,6 +267,7 @@ local function update_dir(dir)
   }
 end
 
+-- Called once on window open; Sets initial dir state on root
 local function update_root_dirs_files()
   local project_root_pwd = io.popen("pwd")
   local project_root_name = project_root_pwd:read("a")
@@ -191,6 +276,7 @@ local function update_root_dirs_files()
   update_dir(strip_new_line(project_root_name))
 end
 
+-- Get contents of our specified ignore file
 local function get_ignore_file_contents()
   io.input(git_ignore_file_name)
   local fileData = io.read("a")
@@ -198,24 +284,9 @@ local function get_ignore_file_contents()
   return fileData
 end
 
--- Returns true if we shouldn't process this ignore
-local function pre_process_ignore_line(ignore_line)
-  -- Lua str indexing is weird. Basically use a substring to read a character. Here we use a "metatable?"
-  -- See metatables: https://www.lua.org/pil/13.html Metatables allow us to change the behavior of a table.
-
-  -- Ignore if this is a comment
-  if ignore_line:sub(1, 1) == COMMENT_CHAR
-  then
-    return true
-  end
-  return false
-end
-
-local function process_ignore_line(ignore_line)
-  local should_skip_line = pre_process_ignore_line(ignore_line)
-  if should_skip_line then return end
-end
-
+-- Reads ignore file
+-- Update IGNORE_FILE, IGNORE_FILE_DIRS, IGNORE_FILE_FILES
+-- Calls update_root_dir_files
 local function process_ignore_file()
   local ignore_file_contents = get_ignore_file_contents()
   local ignore_arr = split(ignore_file_contents, NEW_LINE)
@@ -226,16 +297,20 @@ local function process_ignore_file()
 
   for i = 1, #IGNORE_FILE
   do
-    if path_is_dir(IGNORE_FILE[i]) then
-      local IGNORE_DIR_NO_END_SLASH = IGNORE_FILE
+    if ignore_path_is_dir(IGNORE_FILE[i]) then
+      print(IGNORE_FILE[i], " DIR")
       table.insert(IGNORE_FILE_DIRS, IGNORE_FILE[i])
     else
+      print(IGNORE_FILE[i], " FILE")
       table.insert(IGNORE_FILE_FILES, IGNORE_FILE[i])
     end
   end
 
+  -- print(vim.inspect(IGNORE_FILE_DIRS))
+  -- print(vim.inspect(IGNORE_FILE_FILES))
+
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
-  local files_in_project = update_root_dirs_files()
+  update_root_dirs_files()
 end
 
 -- Check a dir path to see if it has some ignored items or not
