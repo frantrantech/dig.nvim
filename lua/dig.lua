@@ -51,7 +51,7 @@ IGNORED_DIRS = {}
 -- These datastrcutres map an ingore line to the case
 -- I.E */.py -> IGNORE_EXTENSION.
 -- When removing from IGNORE_FILE_CASES, create a different handler for each case
-IGNORE_FILE_CASES = {}
+IGNORED_LINES_CASES = {}
 -- Tracks what file extension we should always ignore
 IGNORED_FILE_EXTENSIONS = {}
 -- Tracks what files we should always ignore
@@ -217,13 +217,14 @@ local function set_dir_ignored(dir_path, is_ignored)
   if is_ignored then IGNORED_DIRS[cleaned_dir_path] = DIR_IS_IGNORED end
 end
 
-local function set_file_ignored(path, is_ignored)
+local function set_file_ignored(path, is_ignored, ignore_case)
   IGNORED_FILES[path] = is_ignored
 end
 
--- Given a line from an ignore file, update our state for what we should be ignoring
--- Given a line from an ignore file, determine what case it is.
-local function process_ignore_case(path)
+
+-- Given a line from an ignore file, return the case. Used to update IGNORED_FILE_CASES
+-- Update state for global and extension ignore
+local function process_ignore_line_case(path)
   if ignore_path_is_dir(path) then
     local is_root_ignore = is_basic_ignore(path)
     if is_root_ignore then return DIR_BASIC_CASE end
@@ -238,37 +239,47 @@ local function process_ignore_case(path)
       local file_name = path:sub(ignore_anywhere_pos + 3, #path)
       -- Why did i add to table twice, double check to ensure setting to 1 is good enough
       IGNORED_GLOBAL_FILES[file_name] = 1
-      -- table.insert(IGNORED_GLOBAL_FILES, file_name)
       return FILE_IGNORE_ANYWHERE_CASE
     end
     local extension_pos = file_ignore_extension_path(path)
     if extension_pos then
-      table.insert(IGNORED_FILE_EXTENSIONS, path:sub(extension_pos + 1, #path))
+      local extension = path:sub(extension_pos + 1, #path)
+      if not (IGNORED_FILE_EXTENSIONS[extension]) then
+        IGNORED_FILE_EXTENSIONS[extension] = extension
+      end
       return FILE_IGNORE_EXTENSION_CASE
     end
     return 5000
   end
 end
 
-local function dir_is_in_ignore_file(dir_path)
-  for i = 1, #IGNORE_FILE_DIRS
-  do
-    local ignore_dir_line = IGNORE_FILE_DIRS[i]
-    local ignore_case = IGNORE_FILE_CASES[ignore_dir_line]
+local function update_dir_ignored_state(dir_path, is_ignored)
+  local ignore_case = process_ignore_line_case(dir_path)
+  IGNORED_LINES_CASES[dir_path] = ignore_case
+  set_dir_ignored(dir_path, is_ignored)
+end
 
-    local abs_dir = get_parent_path(dir_path)
-    local parent_dir = get_parent_path(abs_dir)
-    local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR)
+local function update_file_ignored_state(path, is_ignored)
+  local ignore_case = process_ignore_line_case(dir_path)
+  IGNORED_LINES_CASES[path] = ignore_case
+  set_file_ignored(path, is_ignored)
+end
 
-    -- Check for base ignore case
-    if IGNORED_DIRS[dir_path] then return true end
-    -- If our parent path is ignored, we should be ignored
-    if IGNORED_DIRS[abs_dir] then return true end
-    if IGNORED_DIRS[parent_dir] then
-      set_dir_ignored(abs_dir, true)
-      return true
-    end
+local function calculate_dir_should_be_ignored(dir_path)
+  -- Check for base ignore case
+  local abs_dir = get_parent_path(dir_path)
+  local parent_dir = get_parent_path(abs_dir)
+  local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR)
+  if IGNORED_DIRS[dir_path] then return true end
+  if IGNORED_DIRS[abs_dir] then return true end
+  -- If our parent path is ignored, we should be ignored
+  if IGNORED_DIRS[parent_dir] then
+    set_dir_ignored(abs_dir, true)
+    return true
+  end
 
+  -- Look through all of our IGNORED_CASES to see if dir_path is ignored or not
+  for ignore_dir_line, ignore_case in pairs(IGNORED_LINES_CASES) do
     if ignore_case == DIR_BASIC_CASE then
       local end_slash_case = dir_path_has_end_slash(ignore_dir_line)
       if end_slash_case then ignore_dir_line = string.sub(ignore_dir_line, 1, -2) end
@@ -277,11 +288,12 @@ local function dir_is_in_ignore_file(dir_path)
         return true
       end
     elseif ignore_case == DIR_IGNORE_NO_FILE_CASE then
-      -- print(ignore_dir_line)
-    elseif ignore_case == DIR_NO_EXT_NO_SLASH_CASE then
-      -- print(ignore_dir_line)
+      -- print(ignore_case)
+    elseif ignroe_Case == DIR_NO_EXT_NO_SLASH_CASE then
+      -- print(ignore_case)
     end
   end
+
   return false
 end
 
@@ -292,11 +304,11 @@ end
 -- Solution: Track prev path?
 --    If current abs path isn't in IGNORED_DIRS, check prev path. If prev path in IGNORED_DIRS, add current abs_path
 --    This will make the entire path to file be ignored
-local function file_is_in_ignore_file(file_path)
+local function calculate_file_should_be_ignored(file_path)
   for i = 1, #IGNORE_FILE_FILES
   do
     local ignore_line = IGNORE_FILE_FILES[i]
-    local ignore_case = IGNORE_FILE_CASES[ignore_line]
+    local ignore_case = IGNORED_LINES_CASES[ignore_line]
     local file_name = get_file_name(file_path)
     local abs_dir = get_parent_path(file_path)
     local parent_dir = get_parent_path(abs_dir)
@@ -348,8 +360,6 @@ local function dir_is_in_ignore_filez(dir_path)
 end
 
 -- If we have already ran this function on "dir" then we skip.
---  TODO: Add a way to check if we should update the contents of dir.
---    Maintain a set of (need to update) so that we can check
 --      if dir in seen and dir not in need_to_update then skip
 --
 -- Given a directory, update the file and dir arrays. Update the ignored table.
@@ -367,10 +377,10 @@ local function update_dir(dir)
     local curr_path = '' .. dir .. '/' .. dir_contents[i] .. ''
     if path_is_dir(curr_path) then
       table.insert(curr_child_dirs, curr_path)
-      set_dir_ignored(curr_path, dir_is_in_ignore_file(curr_path))
+      set_dir_ignored(curr_path, calculate_dir_should_be_ignored(curr_path))
     else
       table.insert(curr_files, curr_path)
-      set_file_ignored(curr_path, file_is_in_ignore_file(curr_path))
+      set_file_ignored(curr_path, calculate_file_should_be_ignored(curr_path))
     end
   end
 
@@ -405,15 +415,35 @@ end
 
 local function generate_directory_ignore_lines()
   local ignore_basic_file_content = "#IGNORED DIRECTORIES" .. NEW_LINE
-  for ignore_line, _ in pairs(IGNORE_FILE_CASES) do
-    local ignore_case = IGNORE_FILE_CASES[ignore_line]
+  for ignore_line, _ in pairs(IGNORED_LINES_CASES) do
+    local ignore_case = IGNORED_LINES_CASES[ignore_line]
+    -- TREATING ALL CASES AS SAME FOR NOW
     if ignore_case == DIR_BASIC_CASE then
+      ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
+    elseif ignore_case == DIR_IGNORE_NO_FILE_CASE then
+      ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
+    elseif ignore_case == DIR_NO_EXT_NO_SLASH_CASE then
       ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
     end
   end
   ignore_basic_file_content = ignore_basic_file_content .. NEW_LINE
   return ignore_basic_file_content
 end
+
+-- For basic file ignore, just add it back to the file.
+-- Not modifying so that we preserve leading /
+local function generate_basic_file_ignore()
+  local ignore_basic_file_content = "#IGNORED FILES" .. NEW_LINE
+  for ignore_line, _ in pairs(IGNORED_LINES_CASES) do
+    local ignore_case = IGNORED_LINES_CASES[ignore_line]
+    if ignore_case == FILE_BASIC_CASE then
+      ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
+    end
+  end
+  ignore_basic_file_content = ignore_basic_file_content .. NEW_LINE
+  return ignore_basic_file_content
+end
+
 
 -- Get ignore lines for all the ignored extensions. Generating from IGNORED_FILE_EXTENSIONS
 local function generate_file_extension_ignore_lines()
@@ -439,20 +469,6 @@ local function generate_global_ignore_lines()
   return ignore_global_files_content
 end
 
--- For basic file ignore, just add it back to the file.
--- Not modifying so that we preserve leading /
-local function generate_basic_file_ignore()
-  local ignore_basic_file_content = "#IGNORED FILES" .. NEW_LINE
-  for ignore_line, _ in pairs(IGNORE_FILE_CASES) do
-    local ignore_case = IGNORE_FILE_CASES[ignore_line]
-    if ignore_case == FILE_BASIC_CASE then
-      ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
-    end
-  end
-  ignore_basic_file_content = ignore_basic_file_content .. NEW_LINE
-  return ignore_basic_file_content
-end
-
 local function generate_new_ignore_file_contents()
   local file_extensions_ignore_content = generate_file_extension_ignore_lines()
   local global_ignore_files_content = generate_global_ignore_lines()
@@ -476,7 +492,7 @@ local function process_ignore_file()
 
   for i = 1, #IGNORE_FILE
   do
-    IGNORE_FILE_CASES[IGNORE_FILE[i]] = process_ignore_case(IGNORE_FILE[i])
+    IGNORED_LINES_CASES[IGNORE_FILE[i]] = process_ignore_line_case(IGNORE_FILE[i])
     if ignore_path_is_dir(IGNORE_FILE[i]) then
       local cleaned_dir = clean_dir(IGNORE_FILE[i])
       table.insert(IGNORE_FILE_DIRS, cleaned_dir)
@@ -582,11 +598,11 @@ local function update_dig_window(win_buf)
 end
 
 
--- Something wrong with reading global state whenever we call this function followed by toggle_window
-function M.generate_updated_ignore_file()
-  -- local ignore_file_contents = "test\nmeeps"
+-- TODO: Something wrong with reading global state whenever we call this function followed by toggle_window
+function M.write_updated_ignore_file()
   local ignore_file_contents = generate_new_ignore_file_contents()
-  local new_ignore_file_name = "ignores.txt"
+  -- local new_ignore_file_name = "ignores.txt"
+  local new_ignore_file_name = ".gitignore"
   local new_ignore_file = io.open(new_ignore_file_name, "w")
   if new_ignore_file then
     new_ignore_file:write(ignore_file_contents)
@@ -601,9 +617,9 @@ function M.add_to_ignores(win_buf)
   local line_idx = vim.api.nvim_win_get_cursor(0)[1]
   vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", line_idx - 1, 0, -1)
   if path_is_dir(path) then
-    set_dir_ignored(path, true)
+    update_dir_ignored_state(path, true)
   else
-    set_file_ignored(path, true)
+    update_file_ignored_state(path, true)
   end
 end
 
@@ -612,9 +628,9 @@ function M.remove_from_ignores(win_buf)
   local line_idx = vim.api.nvim_win_get_cursor(0)[1]
   vim.api.nvim_buf_clear_namespace(0, -1, line_idx - 1, line_idx)
   if path_is_dir(path) then
-    set_dir_ignored(path, false)
+    update_dir_ignored_state(path, false)
   else
-    set_file_ignored(path, false)
+    update_file_ignored_state(path, true)
   end
 end
 
@@ -655,11 +671,10 @@ function M.toggle_window()
 
     -- Leave Dig Window
     vim.api.nvim_buf_set_keymap(win_buf, 'n', 'q',
-      '<Cmd>lua require("dig").generate_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
+      '<Cmd>lua require("dig").write_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
-    -- vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").generate_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
-    --   { silent = true })
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").generate_updated_ignore_file()<CR>',
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>',
+      '<Cmd>lua require("dig").write_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
 
     -- Attempt to enter a directory

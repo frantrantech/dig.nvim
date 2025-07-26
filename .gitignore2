@@ -1,0 +1,35 @@
+#THIS IS A COMMENT
+
+#FILE Root Level ignore
+.DS_Store
+
+#FILE Ignore ANYWHERE
+**/app.py
+
+#FILE Ignore all filetype
+*/.ts
+*/.js
+
+# Nested file ignore
+/test_dirs/one_level_dir/init.lua
+test_dirs/one_level_dir/meeps.txt
+
+howdy.js
+./ignoreme.py
+
+
+#Root level ignore NO FILE MATCH
+# /test_dirs/
+# /test_dirs
+
+/dir_tester
+
+#Root level ignore WITH FILE MATCH
+
+#Nested dir 
+test_dirs/two_level_dir
+/test_dirs/two_level_dir
+/test_dirs/two_level_dir/
+
+#Cases not tested yet
+# /.DS_Store

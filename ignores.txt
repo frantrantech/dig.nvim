@@ -6,14 +6,16 @@
 **/app.py
 
 #IGNORED FILES
-.DS_Store
 /test_dirs/one_level_dir/init.lua
 test_dirs/one_level_dir/meeps.txt
 howdy.js
 ./ignoreme.py
+.DS_Store
 
 #IGNORED DIRECTORIES
-test_dirs/two_level_dir
-/test_dirs/two_level_dir
+/Users/francistran/Desktop/dig.nvim/test_dirs
 /dir_tester
+test_dirs/two_level_dir
+/test_dirs/two_level_dir/
+/test_dirs/two_level_dir
 
