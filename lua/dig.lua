@@ -60,6 +60,7 @@ IGNORED_GLOBAL_FILES = {}
 -- Flow overview
 -- IGNORED_FILES and IGNORED_DIRS are our global state for which paths should be ignored
 -- Used by nvim buffer window to get if a file / dir is ignored or not
+--
 -- IGNORED_LINES_CASES maps an ignored path to its cases
 -- Used to calculate whether or not a path is ignored or not
 -- **** Whenever IGNORED_FILES / IGNORED_DIRS are update -> IGNORED_LINES_CASES must be updated as well ****
@@ -288,16 +289,28 @@ end
 -- Should be used whenever we are updating our state after the curr_dir has been calculated
 local function update_dir_ignored_state(dir_path, is_ignored)
   local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR, true)
-  local ignore_case = process_ignore_line_case(relative_path)
-  IGNORED_LINES_CASES[relative_path] = ignore_case
+  if not is_ignored then
+    IGNORED_LINES_CASES[relative_path] = nil
+  else
+    local ignore_case = process_ignore_line_case(relative_path)
+    IGNORED_LINES_CASES[relative_path] = ignore_case
+  end
   set_dir_ignored(relative_path, is_ignored)
+  -- print(vim.inspect(IGNORED_DIRS))
+  -- print(vim.inspect(IGNORED_LINES_CASES))
 end
 
 local function update_file_ignored_state(path, is_ignored)
   local relative_path = remove_root_dir_from_path(path, ROOT_DIR, true)
-  local ignore_case = process_ignore_line_case(relative_path)
-  IGNORED_LINES_CASES[relative_path] = ignore_case
+  if not is_ignored then
+    IGNORED_LINES_CASES[relative_path] = nil
+  else
+    local ignore_case = process_ignore_line_case(relative_path)
+    IGNORED_LINES_CASES[relative_path] = ignore_case
+  end
   set_file_ignored(relative_path, is_ignored)
+  -- print(vim.inspect(IGNORED_FILES))
+  -- print(vim.inspect(IGNORED_LINES_CASES))
 end
 
 local function calculate_dir_should_be_ignored(dir_path)
@@ -376,24 +389,6 @@ local function calculate_file_should_be_ignored(file_path)
   return false
 end
 
--- Returns true if the given dir_path is supposed to be ignored
--- @dir_path is an abs path to a dir
-local function dir_is_in_ignore_filez(dir_path)
-  for i = 1, #IGNORE_FILE_DIRS
-  do
-    local ignore_dir_line = IGNORE_FILE_DIRS[i]
-    local end_slash_case = dir_path_has_end_slash(ignore_dir_line)
-    if end_slash_case then
-      ignore_dir_line = string.sub(ignore_dir_line, 1, -2)
-    end
-    local dir_path_is_in_ignore = string.find(dir_path, ignore_dir_line, 1, true)
-    if dir_path_is_in_ignore then
-      return true
-    end
-  end
-  return false
-end
-
 -- If we have already ran this function on "dir" then we skip.
 --      if dir in seen and dir not in need_to_update then skip
 --
@@ -451,8 +446,8 @@ end
 local function generate_directory_ignore_lines()
   local ignore_basic_file_content = "#IGNORED DIRECTORIES" .. NEW_LINE
   for ignore_line, _ in pairs(IGNORED_LINES_CASES) do
+    print(ignore_line)
     local ignore_case = IGNORED_LINES_CASES[ignore_line]
-    -- TREATING ALL CASES AS SAME FOR NOW
     if ignore_case == DIR_BASIC_CASE then
       ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
     elseif ignore_case == DIR_IGNORE_NO_FILE_CASE then
@@ -668,7 +663,7 @@ function M.remove_from_ignores(win_buf)
   if path_is_dir(path) then
     update_dir_ignored_state(path, false)
   else
-    update_file_ignored_state(path, true)
+    update_file_ignored_state(path, false)
   end
 end
 
