@@ -1,21 +1,23 @@
 #IGNORED EXTENSIONS
-*/.ts
 */.js
+*/.ts
 
 #GLOBALLY IGNORED FILES
 **/app.py
 
 #IGNORED FILES
+./ignoreme.py
+.DS_Store
 /test_dirs/one_level_dir/init.lua
 test_dirs/one_level_dir/meeps.txt
 howdy.js
-./ignoreme.py
-.DS_Store
+/.luarc.json
+/README.md
 
 #IGNORED DIRECTORIES
-/Users/francistran/Desktop/dig.nvim/test_dirs
-/dir_tester
 /test_dirs/two_level_dir
+/test_dirs
+/dir_tester
 test_dirs/two_level_dir
 /test_dirs/two_level_dir/
 

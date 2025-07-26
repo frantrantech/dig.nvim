@@ -57,6 +57,13 @@ IGNORED_FILE_EXTENSIONS = {}
 -- Tracks what files we should always ignore
 IGNORED_GLOBAL_FILES = {}
 
+-- Flow overview
+-- IGNORED_FILES and IGNORED_DIRS are our global state for which paths should be ignored
+-- Used by nvim buffer window to get if a file / dir is ignored or not
+-- IGNORED_LINES_CASES maps an ignored path to its cases
+-- Used to calculate whether or not a path is ignored or not
+-- **** Whenever IGNORED_FILES / IGNORED_DIRS are update -> IGNORED_LINES_CASES must be updated as well ****
+
 local function filter(arr, filter_fn)
   local result = {}
   for i, v in ipairs(arr) do
@@ -100,6 +107,21 @@ end
 local function dir_path_has_end_slash(path)
   local last_char = string.char(path:byte(-1))
   return last_char == SLASH
+end
+
+local function reset_global_state()
+  ROOT_DIR = ""
+  IGNORE_FILE = {}
+  IGNORE_FILE_DIRS = {}
+  IGNORE_FILE_FILES = {}
+  CURR_DIR = ""
+  ALL_FILES = {}
+  ALL_DIRS = {}
+  IGNORED_FILES = {}
+  IGNORED_DIRS = {}
+  IGNORED_LINES_CASES = {}
+  IGNORED_FILE_EXTENSIONS = {}
+  IGNORED_GLOBAL_FILES = {}
 end
 
 -- Converts foo/bar/ -> /foo/bar/
@@ -152,8 +174,12 @@ local function get_parent_path(file_path)
   return path
 end
 
-local function remove_root_dir_from_path(file_path, root_dir)
-  return file_path:sub(#root_dir + 2, #file_path)
+local function remove_root_dir_from_path(file_path, root_dir, should_have_leading_slash)
+  if should_have_leading_slash then
+    return file_path:sub(#root_dir + 1, #file_path)
+  else
+    return file_path:sub(#root_dir + 2, #file_path)
+  end
 end
 
 -- Need a seperate function to see if a path from ignore is file or function
@@ -217,7 +243,7 @@ local function set_dir_ignored(dir_path, is_ignored)
   if is_ignored then IGNORED_DIRS[cleaned_dir_path] = DIR_IS_IGNORED end
 end
 
-local function set_file_ignored(path, is_ignored, ignore_case)
+local function set_file_ignored(path, is_ignored)
   IGNORED_FILES[path] = is_ignored
 end
 
@@ -253,23 +279,28 @@ local function process_ignore_line_case(path)
   end
 end
 
+-- Updates IGNORED_DIRS/IGNORED_FILES state as well as IGNORED_LINES_CASES for the path
+-- Used by dig.add_to_ignores
+-- Should be used whenever we are updating our state after the curr_dir has been calculated
 local function update_dir_ignored_state(dir_path, is_ignored)
-  local ignore_case = process_ignore_line_case(dir_path)
-  IGNORED_LINES_CASES[dir_path] = ignore_case
-  set_dir_ignored(dir_path, is_ignored)
+  local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR, true)
+  local ignore_case = process_ignore_line_case(relative_path)
+  IGNORED_LINES_CASES[relative_path] = ignore_case
+  set_dir_ignored(relative_path, is_ignored)
 end
 
 local function update_file_ignored_state(path, is_ignored)
-  local ignore_case = process_ignore_line_case(dir_path)
-  IGNORED_LINES_CASES[path] = ignore_case
-  set_file_ignored(path, is_ignored)
+  local relative_path = remove_root_dir_from_path(path, ROOT_DIR, true)
+  local ignore_case = process_ignore_line_case(relative_path)
+  IGNORED_LINES_CASES[relative_path] = ignore_case
+  set_file_ignored(relative_path, is_ignored)
 end
 
 local function calculate_dir_should_be_ignored(dir_path)
   -- Check for base ignore case
   local abs_dir = get_parent_path(dir_path)
   local parent_dir = get_parent_path(abs_dir)
-  local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR)
+  local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR, false)
   if IGNORED_DIRS[dir_path] then return true end
   if IGNORED_DIRS[abs_dir] then return true end
   -- If our parent path is ignored, we should be ignored
@@ -312,7 +343,7 @@ local function calculate_file_should_be_ignored(file_path)
     local file_name = get_file_name(file_path)
     local abs_dir = get_parent_path(file_path)
     local parent_dir = get_parent_path(abs_dir)
-    local relative_path = remove_root_dir_from_path(file_path, ROOT_DIR)
+    local relative_path = remove_root_dir_from_path(file_path, ROOT_DIR, false)
 
     -- Check for file global ignore
     if IGNORED_GLOBAL_FILES[file_name] then return true end
@@ -573,7 +604,6 @@ local function update_dig_window(win_buf)
   for i = 1, #dirs
   do
     local dir_is_ignored = get_dir_is_ignored(dirs[i])
-    local dir_is_partially_ignored = get_dir_is_partially_ignored(dirs[i])
     local dir_display = dirs[i]
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
     if dir_is_ignored then
@@ -661,6 +691,7 @@ end
 -- Add <ESC> command in the new buffer to toggle (close) the window
 function M.toggle_window()
   local window_is_open = Dig_window_id ~= nil and vim.api.nvim_win_is_valid(Dig_window_id)
+  reset_global_state()
   if window_is_open then
     close_window()
     return
