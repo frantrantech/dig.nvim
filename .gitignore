@@ -14,8 +14,8 @@
 /test_dirs/one_level_dir/init.lua
 test_dirs/one_level_dir/meeps.txt
 
-
 howdy.js
+./ignoreme.py
 
 
 #Root level ignore NO FILE MATCH
