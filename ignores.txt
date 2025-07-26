@@ -1,0 +1,7 @@
+#IGNORED EXTENSIONS
+*/.ts
+*/.js
+
+#IGNORED FILES
+**/app.py
+

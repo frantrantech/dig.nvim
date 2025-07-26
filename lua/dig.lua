@@ -48,8 +48,9 @@ ALL_DIRS = {}
 IGNORED_FILES = {}
 IGNORED_DIRS = {}
 
--- Maps an ingore line to the case
--- I.E */.py -> IGNORE_EXTENSION
+-- These datastrcutres map an ingore line to the case
+-- I.E */.py -> IGNORE_EXTENSION. 
+-- When removing from IGNORE_FILE_CASES, create a different handler for each case
 IGNORE_FILE_CASES = {}
 -- Tracks what file extension we should always ignore
 IGNORED_FILE_EXTENSIONS = {}
@@ -155,14 +156,6 @@ local function remove_root_dir_from_path(file_path, root_dir)
   return file_path:sub(#root_dir + 2, #file_path)
 end
 
-function CASE_TO_STRING_MAPPER(case)
-  if case == DIR_BASIC_CASE then print("Dir Root Ignore") end
-  if case == DIR_IGNORE_NO_FILE_CASE then print("Dir Root Ignore No File") end
-  if case == FILE_BASIC_CASE then print("File Root Ignore") end
-  if case == FILE_IGNORE_ANYWHERE_CASE then print("File Ingore anywhere") end
-  if case == FILE_IGNORE_EXTENSION_CASE then print("File Ignore Extension") end
-end
-
 -- Need a seperate function to see if a path from ignore is file or function
 local function ignore_path_is_dir(path)
   local ends_with_slash = path:sub(-1, -1) == SLASH
@@ -226,7 +219,6 @@ local function set_file_ignored(path, is_ignored)
   IGNORED_FILES[path] = is_ignored
 end
 
-
 -- Given a line from an ignore file, update our state for what we should be ignoring
 -- Given a line from an ignore file, determine what case it is.
 local function process_ignore_case(path)
@@ -242,8 +234,9 @@ local function process_ignore_case(path)
     local ignore_anywhere_pos = is_file_ignore_anywhere_case(path)
     if ignore_anywhere_pos then
       local file_name = path:sub(ignore_anywhere_pos + 3, #path)
+      -- Why did i add to table twice, double check to ensure setting to 1 is good enough
       IGNORED_GLOBAL_FILES[file_name] = 1
-      table.insert(IGNORED_GLOBAL_FILES, file_name)
+      -- table.insert(IGNORED_GLOBAL_FILES, file_name)
       return FILE_IGNORE_ANYWHERE_CASE
     end
     local extension_pos = file_ignore_extension_path(path)
@@ -261,14 +254,14 @@ local function dir_is_in_ignore_file(dir_path)
     local ignore_dir_line = IGNORE_FILE_DIRS[i]
     local ignore_case = IGNORE_FILE_CASES[ignore_dir_line]
 
-    local abs_path = get_parent_path(dir_path)
-    local parent_path = get_parent_path(abs_path)
+    local abs_dir = get_parent_path(dir_path)
+    local parent_dir = get_parent_path(abs_dir)
     local relative_path = remove_root_dir_from_path(dir_path, ROOT_DIR)
 
     if IGNORED_DIRS[dir_path] then return true end
-    if IGNORED_DIRS[abs_path] then return true end
-    if IGNORED_DIRS[parent_path] then
-      set_dir_ignored(abs_path, true)
+    if IGNORED_DIRS[abs_dir] then return true end
+    if IGNORED_DIRS[parent_dir] then
+      set_dir_ignored(abs_dir, true)
       return true
     end
 
@@ -290,7 +283,6 @@ end
 
 -- dir_path is an abs path
 -- IGNORED_DIRS will store abs path
--- TODO: FIND a way to handle a parent in ignore file -> How to hide child?
 -- If our abs path to file is in IGNORED_DIRS, return true
 --    We go into child, how can we detect that since our prev path was in IGNORED_DIRS, we should also be ignored
 -- Solution: Track prev path?
@@ -302,21 +294,23 @@ local function file_is_in_ignore_file(file_path)
     local ignore_line = IGNORE_FILE_FILES[i]
     local ignore_case = IGNORE_FILE_CASES[ignore_line]
     local file_name = get_file_name(file_path)
-    local abs_path = get_parent_path(file_path)
-    local parent_path = get_parent_path(abs_path)
+    local abs_dir = get_parent_path(file_path)
+    local parent_dir = get_parent_path(abs_dir)
     local relative_path = remove_root_dir_from_path(file_path, ROOT_DIR)
+
     -- Check for file global ignore
     if IGNORED_GLOBAL_FILES[file_name] then return true end
     -- Check for this path is ignored
-    if IGNORED_DIRS[abs_path] ~= nil then return true end
+    if IGNORED_DIRS[abs_dir] ~= nil then return true end
     -- Parent path is ignored, that means this dir should be ignored as well
-    if IGNORED_DIRS[parent_path] ~= nil then
-      set_dir_ignored(abs_path, true)
+    if IGNORED_DIRS[parent_dir] ~= nil then
+      set_dir_ignored(abs_dir, true)
       return true
     end
 
+    if IGNORED_FILES[relative_path] ~= nil then return true end
+
     if ignore_case == FILE_BASIC_CASE then
-      if IGNORED_FILES[relative_path] ~= nil then return true end
       local file_path_is_in_ignore = string.find(file_path, ignore_line, 1, true)
       if file_path_is_in_ignore then
         IGNORED_FILES[relative_path] = true
@@ -420,6 +414,35 @@ local function get_ignore_file_contents()
   return fileData
 end
 
+-- Get ignore lines for all the ignored extensions
+local function generate_file_extension_ignore_lines()
+  local ignore_extensions_content = "#IGNORED EXTENSIONS" .. NEW_LINE
+  local base_extension_ignore_line = "*/"
+  for key, _ in pairs(IGNORED_FILE_EXTENSIONS) do
+    ignore_extensions_content = ignore_extensions_content .. base_extension_ignore_line .. IGNORED_FILE_EXTENSIONS[key] .. NEW_LINE
+  end
+  ignore_extensions_content  = ignore_extensions_content .. NEW_LINE
+  return ignore_extensions_content
+end
+
+-- Get ignore lines for all globally ignored_files
+local function generate_global_ignore_files()
+  local ignore_global_files_content = "#IGNORED FILES" .. NEW_LINE
+  local base_global_ignore_line = "**/"
+  for global_ignore_file, _ in pairs(IGNORED_GLOBAL_FILES) do
+    ignore_global_files_content = ignore_global_files_content .. base_global_ignore_line .. global_ignore_file .. NEW_LINE
+  end
+  ignore_global_files_content = ignore_global_files_content .. NEW_LINE
+  return ignore_global_files_content
+end
+
+local function generate_new_ignore_file_contents()
+  local file_extensions_ignore_content = generate_file_extension_ignore_lines()
+  local global_ignore_files_content = generate_global_ignore_files()
+  local ignore_file_contents = file_extensions_ignore_content .. global_ignore_files_content
+  return ignore_file_contents
+end
+
 -- Reads ignore file
 -- Update IGNORE_FILE, IGNORE_FILE_DIRS, IGNORE_FILE_FILES
 -- Calls update_root_dir_files
@@ -442,9 +465,11 @@ local function process_ignore_file()
     end
   end
 
+  -- print(vim.inspect(IGNORE_FILE_CASES))
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   update_root_dirs_files()
 end
+
 
 -- Check a dir path to see if it has some ignored items or not
 local function get_dir_is_partially_ignored(dir_path)
@@ -536,6 +561,19 @@ local function update_dig_window(win_buf)
   end
 end
 
+
+-- Something wrong with reading global state whenever we call this function followed by toggle_window
+function M.generate_updated_ignore_file()
+  -- local ignore_file_contents = "test\nmeeps"
+  local ignore_file_contents = generate_new_ignore_file_contents()
+  local new_ignore_file_name = "ignores.txt"
+  local new_ignore_file = io.open(new_ignore_file_name, "w")
+  if new_ignore_file then
+    new_ignore_file:write(ignore_file_contents)
+    new_ignore_file:close()
+  end
+end
+
 -- Update IGNORED_FILE / IGNORED_DIRS
 -- Update Styling of line
 function M.add_to_ignores(win_buf)
@@ -596,9 +634,11 @@ function M.toggle_window()
     local win_buf = win.win_buf
 
     -- Leave Dig Window
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'q', '<Cmd>lua require("dig").toggle_window()<CR>',
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', 'q', '<Cmd>lua require("dig").generate_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
       { silent = true })
-    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").toggle_window()<CR>',
+    -- vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").generate_updated_ignore_file()<CR> <Cmd>lua require("dig").toggle_window()<CR>',
+    --   { silent = true })
+    vim.api.nvim_buf_set_keymap(win_buf, 'n', '<ESC>', '<Cmd>lua require("dig").generate_updated_ignore_file()<CR>',
       { silent = true })
 
     -- Attempt to enter a directory

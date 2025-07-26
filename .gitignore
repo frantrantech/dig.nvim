@@ -8,6 +8,7 @@
 
 #FILE Ignore all filetype
 */.ts
+*/.js
 
 # Nested file ignore
 /test_dirs/one_level_dir/init.lua
