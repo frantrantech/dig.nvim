@@ -175,6 +175,10 @@ local function get_parent_path(file_path)
 end
 
 local function remove_root_dir_from_path(file_path, root_dir, should_have_leading_slash)
+  if #file_path < #root_dir then return file_path end
+  local path_has_root_dir = file_path:sub(1, #root_dir) == root_dir
+  if not path_has_root_dir then return file_path end
+
   if should_have_leading_slash then
     return file_path:sub(#root_dir + 1, #file_path)
   else
@@ -605,7 +609,10 @@ local function update_dig_window(win_buf)
   do
     local dir_is_ignored = get_dir_is_ignored(dirs[i])
     local dir_display = dirs[i]
-    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
+    local relative_path = remove_root_dir_from_path(dirs[i], ROOT_DIR, true)
+    -- print(relative_path)
+    -- vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
+    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { relative_path })
     if dir_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
     end
@@ -619,14 +626,15 @@ local function update_dig_window(win_buf)
   do
     local file_is_ignored = get_file_is_ignored(files[i])
     local path_str = files[i]
-    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
+    local relative_path = remove_root_dir_from_path(path_str, ROOT_DIR, false)
+    -- vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
+    vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { relative_path })
     if file_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
     end
     last_line_idx = last_line_idx + 1
   end
 end
-
 
 -- TODO: Something wrong with reading global state whenever we call this function followed by toggle_window
 function M.write_updated_ignore_file()
@@ -668,14 +676,17 @@ end
 -- If dir -> update CURR_DIR
 -- If file -> do nothing?
 function M.enter_path(win_buf)
-  local path = vim.api.nvim_get_current_line()
-  if path_is_dir(path) then
+  local relative_next_path = vim.api.nvim_get_current_line()
+  if path_is_dir(relative_next_path) then
     -- Do not move if we are currently in root_dir
-    if CURR_DIR == ROOT_DIR and path == PREV_DIR then return end
-    if path == PREV_DIR then
-      path = remove_last_dir_from_path(CURR_DIR)
+    if CURR_DIR == ROOT_DIR and relative_next_path == PREV_DIR then return end
+    if relative_next_path == PREV_DIR then
+      relative_next_path = remove_last_dir_from_path(CURR_DIR)
+    else
+      relative_next_path = ROOT_DIR .. relative_next_path
     end
-    update_dir(path)
+    print(relative_next_path)
+    update_dir(relative_next_path)
     update_dig_window(win_buf)
   else
   end
