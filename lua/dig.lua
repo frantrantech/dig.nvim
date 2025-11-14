@@ -11,6 +11,7 @@ local git_ignore_file_name = "./.gitignore"
 local ignore_file_name = "./.ignore"
 local DIR_IS_IGNORED = 100
 local DIR_IS_PARTIALLY_IGNORED = 200
+local FILES = "FILES"
 
 -- local DIR_ROOT_IGNORE_CASE = 10
 -- local DIR_ROOT_IGNORE_NO_FILE_CASE = 11
@@ -419,7 +420,6 @@ local function update_dir(dir)
 
   -- print(vim.inspect(IGNORED_DIRS))
   -- print(vim.inspect(IGNORED_FILES))
-
   return {
     files = curr_files,
     dirs = child_dirs
@@ -443,10 +443,10 @@ local function get_ignore_file_contents()
   return fileData
 end
 
+-- Iterates through our ignored directories and returns a line for each ignore case
 local function generate_directory_ignore_lines()
   local ignore_basic_file_content = "#IGNORED DIRECTORIES" .. NEW_LINE
   for ignore_line, _ in pairs(IGNORED_LINES_CASES) do
-    print(ignore_line)
     local ignore_case = IGNORED_LINES_CASES[ignore_line]
     if ignore_case == DIR_BASIC_CASE then
       ignore_basic_file_content = ignore_basic_file_content .. ignore_line .. NEW_LINE
@@ -473,7 +473,6 @@ local function generate_basic_file_ignore()
   ignore_basic_file_content = ignore_basic_file_content .. NEW_LINE
   return ignore_basic_file_content
 end
-
 
 -- Get ignore lines for all the ignored extensions. Generating from IGNORED_FILE_EXTENSIONS
 local function generate_file_extension_ignore_lines()
@@ -515,7 +514,6 @@ end
 local function process_ignore_file()
   local ignore_file_contents = get_ignore_file_contents()
   local ignore_arr = split(ignore_file_contents, NEW_LINE)
-
   IGNORE_FILE = filter(ignore_arr, function(ignore_line)
     return ignore_line:sub(1, 1) ~= COMMENT_CHAR
   end)
@@ -530,12 +528,9 @@ local function process_ignore_file()
       table.insert(IGNORE_FILE_FILES, IGNORE_FILE[i])
     end
   end
-
-  -- print(vim.inspect(IGNORE_FILE_CASES))
   -- once IGNORE_FILE is set, we can read through our file structure to see which files are ignored
   update_root_dirs_files()
 end
-
 
 -- Check a dir path to see if it has some ignored items or not
 local function get_dir_is_partially_ignored(dir_path)
@@ -573,7 +568,7 @@ local function create_window()
   local height = 20
   local borderchars = { "─", "│", "─", "│", "╭", "╮", "╯", "╰" }
   Dig_window_id, Dig_window = popup.create(window_buffer, {
-    title = "Diging Through: " .. CURR_DIR,
+    title = "Digging Through: " .. CURR_DIR,
     highlight = "DigWindow",
     line = math.floor(((vim.o.lines - height) / 2) - 1),
     col = math.floor((vim.o.columns - width) / 2),
@@ -603,10 +598,7 @@ local function update_dig_window(win_buf)
   for i = 1, #dirs
   do
     local dir_is_ignored = get_dir_is_ignored(dirs[i])
-    local dir_display = dirs[i]
     local relative_path = remove_root_dir_from_path(dirs[i], ROOT_DIR, true)
-    -- print(relative_path)
-    -- vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { dir_display })
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { relative_path })
     if dir_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
@@ -622,7 +614,6 @@ local function update_dig_window(win_buf)
     local file_is_ignored = get_file_is_ignored(files[i])
     local path_str = files[i]
     local relative_path = remove_root_dir_from_path(path_str, ROOT_DIR, false)
-    -- vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { path_str })
     vim.api.nvim_buf_set_lines(win_buf, last_line_idx, last_line_idx, true, { relative_path })
     if file_is_ignored then
       vim.api.nvim_buf_add_highlight(0, -1, "IgnoreLineColor", last_line_idx, 0, -1)
@@ -672,7 +663,7 @@ end
 -- If file -> do nothing?
 function M.enter_path(win_buf)
   local relative_next_path = vim.api.nvim_get_current_line()
-  if path_is_dir(relative_next_path) then
+  if path_is_dir(relative_next_path) and relative_next_path ~= "FILES" then
     -- Do not move if we are currently in root_dir
     if CURR_DIR == ROOT_DIR and relative_next_path == PREV_DIR then return end
     if relative_next_path == PREV_DIR then
@@ -680,7 +671,6 @@ function M.enter_path(win_buf)
     else
       relative_next_path = ROOT_DIR .. relative_next_path
     end
-    print(relative_next_path)
     update_dir(relative_next_path)
     update_dig_window(win_buf)
   else
